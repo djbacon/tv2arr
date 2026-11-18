@@ -1,10 +1,10 @@
 services:
   tv2arr:
-    image: tv2arr:v0.11.0
+    image: tv2arr:v0.11.1
     build:
       context: .
       args:
-        TV2ARR_VERSION: v0.11.0
+        TV2ARR_VERSION: v0.11.1
     ports:
       - "${TV2ARR_LAN_IP:?Set the Docker host LAN IP}:3077:8080"
     environment:

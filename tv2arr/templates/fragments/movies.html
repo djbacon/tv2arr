@@ -3,13 +3,15 @@
 {% if movies %}
 <ul class="movies" role="list">
   {% for movie in movies %}
+  {% set already_in_seerr = movie.outcome in ['Already requested in Seerr', 'Already requested or available in Seerr'] %}
+  {% set requested = already_in_seerr or movie.outcome == 'Request sent to Seerr' %}
   <li class="movie-card">
     <a href="{{ url_for('movie', listing_id=movie.id) }}">
       <div class="poster">
         {% set poster = movie.matched_poster or movie.poster %}
         {% if poster %}<img src="{{ poster }}" alt="" width="500" height="750" loading="lazy">{% else %}{{ icon('film') }}{% endif %}
-        {% if movie.outcome == 'Request sent to Seerr' %}
-        <span class="request-badge" role="img" aria-label="Request sent to Seerr">{{ icon('circle-check') }}</span>
+        {% if requested %}
+        <span class="request-badge{% if already_in_seerr %} request-badge-existing{% endif %}" role="img" aria-label="{{ movie.outcome }}">{{ icon('circle-check') }}</span>
         {% endif %}
       </div>
       <div class="movie-copy">
@@ -17,7 +19,7 @@
         <p>{% if movie.year %}{{ movie.year }} · {% endif %}{{ sources[movie.source].NAME if movie.source in sources else movie.source }}</p>
         {% if movie.ignored %}
         <span class="tag">Ignored</span>
-        {% elif movie.outcome != 'Request sent to Seerr' %}
+        {% elif not requested %}
         <span class="tag {{ movie.match_state }}">{{ movie.outcome or {'new':'Awaiting lookup', 'review':'Needs review', 'missing':'Missing from TMDb', 'ready':languages.get(movie.language, 'Eligible'), 'excluded':'Other language'}[movie.match_state] }}</span>
         {% endif %}
       </div>

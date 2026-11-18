@@ -121,6 +121,7 @@ button.quiet { background: transparent; }
   border-radius: 50%; box-shadow: 0 2px 6px #0008; pointer-events: none;
 }
 .request-badge .icon { font-size: 1.1rem; }
+.request-badge-existing { color: #f3d16b; background: #302913; border-color: #a68b36; }
 .movie-copy { padding: .8rem; }
 .movie-copy h2 { font-size: .98rem; }
 .movie-copy p { font-size: .84rem; color: var(--muted); }
