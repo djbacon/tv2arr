@@ -4,6 +4,8 @@ from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
+from . import Catalogue
+
 NAME = "TV3 Play"
 SLUG = "tv3"
 URL = "https://play.tv3.lv/filmas/"
@@ -70,7 +72,7 @@ def parse_details(html, source_id):
 def listing(client):
     response = client.get(URL)
     response.raise_for_status()
-    return parse_listing(response.text)
+    return Catalogue(parse_listing(response.text))
 
 
 def details(client, movie):

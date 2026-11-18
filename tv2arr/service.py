@@ -6,16 +6,17 @@ from threading import Event, Lock, Thread
 import httpx
 
 from .seerr import LANGUAGES, Seerr, SeerrError, existing_request, find_candidates, poster_url
-from .sources import tv3
+from .sources import apollo, tv3
 from .storage import RIGA, now_stamp
 from .titles import movie_title
 
 log = logging.getLogger(__name__)
-MATCHING_REVISION = 1
+MATCHING_REVISION = 2
+MISSING_RETRY_SECONDS = 24 * 3600
 
 
 class Service:
-    def __init__(self, db, sources=(tv3,), seerr=Seerr, source_transport=None):
+    def __init__(self, db, sources=(tv3, apollo), seerr=Seerr, source_transport=None):
         self.db = db
         self.sources = {source.SLUG: source for source in sources}
         self.seerr = seerr
@@ -48,15 +49,16 @@ class Service:
                 matching_changed = self.db.config("scan_matching_revision", 0) != MATCHING_REVISION
                 self.db.write(
                     """UPDATE listings SET match_state='new'
-                       WHERE present=1 AND match_state='review' AND tmdb_id IS NULL
+                       WHERE present=1 AND match_state IN ('review','missing') AND tmdb_id IS NULL
                        AND (candidates='[]' OR ?)""",
                     (matching_changed,),
                 )
                 self.db.set_config("scan_lookup_revision", settings["lookup_revision"])
                 self.db.set_config("scan_matching_revision", MATCHING_REVISION)
+            remaining = settings["limit"]
             for source in self.sources.values():
                 try:
-                    self.scan_source(source, settings)
+                    remaining -= self.scan_source(source, settings | {"limit": remaining})
                 except (httpx.HTTPError, ValueError) as error:
                     message = str(error) if isinstance(error, ValueError) else "Could not load the listing."
                     self.db.event("Scan", f"{source.NAME}: {message}", False)
@@ -71,13 +73,16 @@ class Service:
         configured = settings["url"] and settings["api_key"]
         failures = 0
         with self.source_client() as web:
-            listings = source.listing(web)
+            catalogue = source.listing(web)
+            listings = catalogue.listings
             new, baseline = self.db.observe(source.SLUG, listings, now_stamp())
             queue = self.db.rows(
                 """SELECT * FROM listings WHERE source=? AND present=1
                    AND (enriched=0 OR match_state='new'
+                        OR (match_state='missing' AND tmdb_id IS NULL
+                            AND (match_checked_at IS NULL OR match_checked_at <= ?))
                         OR (tmdb_id IS NOT NULL AND matched_poster IS NULL)) ORDER BY id""",
-                (source.SLUG,),
+                (source.SLUG, now_stamp() - MISSING_RETRY_SECONDS),
             )
             if configured:
                 with self.api(settings) as api:
@@ -85,10 +90,10 @@ class Service:
                         try:
                             if listing["tmdb_id"]:
                                 if not listing["enriched"]:
-                                    listing = self.enrich(listing, source, web)
+                                    listing = self.enrich(listing, source, web, catalogue)
                                 self.refresh_poster(listing, api)
                             else:
-                                self.match(listing, source, web, api)
+                                self.match(listing, source, web, api, catalogue)
                         except SeerrError as error:
                             failures += 1
                             self.db.event("Scan", f"{source.NAME} lookup for {movie_title(listing)}: {error}", False)
@@ -100,7 +105,7 @@ class Service:
                 for listing in queue:
                     if not listing["enriched"]:
                         try:
-                            self.enrich(listing, source, web)
+                            self.enrich(listing, source, web, catalogue)
                         except (httpx.HTTPError, ValueError):
                             failures += 1
 
@@ -115,28 +120,35 @@ class Service:
         if failures:
             message += f" {failures} lookup errors. Unfinished lookups will retry on a later scan."
         self.db.event("Scan", message, not failures)
+        return auto_count
 
-    def enrich(self, listing, source, web):
-        original, year, poster = source.details(web, listing)
+    def enrich(self, listing, source, web, catalogue):
+        if listing["source_id"] in catalogue.details:
+            original, year, poster = catalogue.details[listing["source_id"]]
+        else:
+            original, year, poster = source.details(web, listing)
         self.db.write(
             "UPDATE listings SET original_title=?, year=?, poster=?, enriched=1 WHERE id=?",
             (original, year, poster, listing["id"]),
         )
         return self.db.movie(listing["id"])
 
-    def match(self, listing, source, web, api):
+    def match(self, listing, source, web, api, catalogue):
         if not listing["enriched"]:
-            listing = self.enrich(listing, source, web)
+            listing = self.enrich(listing, source, web, catalogue)
         candidates, exact = find_candidates(api, listing)
-        self.db.write("UPDATE listings SET candidates=? WHERE id=?", (json.dumps(candidates), listing["id"]))
         if exact:
             self.db.save_match(listing["id"], api.movie(exact), auto=True)
         else:
             self.db.write(
-                """UPDATE listings SET match_state='review', tmdb_id=NULL, matched_title=NULL,
+                """UPDATE listings SET match_state=?, tmdb_id=NULL, matched_title=NULL,
                    matched_original_title='', matched_poster=NULL, language=NULL, auto_match=0 WHERE id=?""",
-                (listing["id"],),
+                ("review" if candidates else "missing", listing["id"]),
             )
+        self.db.write(
+            "UPDATE listings SET candidates=?, match_checked_at=? WHERE id=?",
+            (json.dumps(candidates), now_stamp(), listing["id"]),
+        )
 
     def refresh_poster(self, listing, api):
         movie = api.movie(listing["tmdb_id"])

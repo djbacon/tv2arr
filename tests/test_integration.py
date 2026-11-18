@@ -3,14 +3,15 @@ import re
 import tempfile
 import unittest
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import httpx
 from bs4 import BeautifulSoup
 
 from tv2arr.app import create_app
 from tv2arr.seerr import Seerr, SeerrError
-from tv2arr.service import Service
-from tv2arr.sources import tv3
+from tv2arr.service import MISSING_RETRY_SECONDS, Service
+from tv2arr.sources import apollo, tv3
 from tv2arr.storage import RIGA, Storage, now_stamp, retention_cutoff
 
 PASSWORD = "temporary-test-password"
@@ -29,9 +30,12 @@ class IntegrationTest(unittest.TestCase):
         self.remote_has_request = False
         self.timed_out = False
         self.search_available = True
+        self.search_queries = []
         self.rejected_title = ""
         self.reject_latvian_locale = False
         self.source_ids = [101]
+        self.apollo_feed = []
+        self.source_calls = []
         self.config = {
             "TESTING": True, "DATA_DIR": data.name, "ADMIN_PASSWORD": PASSWORD,
             "LAN_IP": "192.168.2.5", "LAN_CIDR": "192.168.2.0/24",
@@ -43,11 +47,14 @@ class IntegrationTest(unittest.TestCase):
 
     def service_factory(self, db):
         return Service(
-            db, seerr=lambda url, key: Seerr(url, key, httpx.MockTransport(self.fake_seerr)),
+            db, sources=(tv3,), seerr=lambda url, key: Seerr(url, key, httpx.MockTransport(self.fake_seerr)),
             source_transport=httpx.MockTransport(self.fake_tv3),
         )
 
     def fake_tv3(self, request):
+        self.source_calls.append(str(request.url))
+        if str(request.url) == apollo.FEED_URL:
+            return httpx.Response(200, json=self.apollo_feed)
         if request.url.path == "/filmas/":
             cards = "".join(
                 f'<h3 class="tv3-post-title"><a href="/filmas/filma-{sid}/">Filma {sid}</a></h3>'
@@ -76,6 +83,7 @@ class IntegrationTest(unittest.TestCase):
             return httpx.Response(200, json={"id": 1})
         if path == "/seerr/api/v1/search":
             self.assertEqual(request.url.params.get("page"), "1")
+            self.search_queries.append(request.url.params["query"])
             if not self.search_available:
                 return httpx.Response(200, json={"results": []})
             title = request.url.params["query"]
@@ -135,6 +143,123 @@ class IntegrationTest(unittest.TestCase):
 
     def scan(self):
         self.service.scan_source(tv3)
+
+    def enable_apollo(self, ids=(102,)):
+        self.service.sources[apollo.SLUG] = apollo
+        self.apollo_feed = [
+            {
+                "ID": sid, "Title": f"Apollo filma {sid}", "OriginalTitle": f"Original {sid}",
+                "ProductionYear": 2024, "dtLocalRelease": "2099-01-01T00:00:00",
+                "EventType": "Movie", "Genres": "Drāma",
+                "EventURL": f"https://www.apollokino.lv/event/{sid}/filma-{sid}",
+                "Images": {"EventLargeImagePortrait": f"{apollo.POSTER_ORIGIN}/1048/{sid}.jpg"},
+            }
+            for sid in ids
+        ]
+
+    def scan_all(self):
+        self.service.scan_lock.acquire()
+        self.service._scan()
+
+    def test_default_sources_include_apollo_and_tv3(self):
+        self.assertEqual(set(Service(self.db).sources), {"tv3", "apollo"})
+
+    def test_apollo_catalogue_enriches_without_seerr_or_detail_requests(self):
+        self.enable_apollo((102, 103))
+        self.service.scan_source(apollo)
+        movies = self.db.rows("SELECT * FROM listings ORDER BY id")
+        self.assertEqual([m["source_id"] for m in movies], ["102", "103"])
+        self.assertTrue(all(m["source"] == "apollo" and m["enriched"] for m in movies))
+        self.assertEqual(movies[0]["original_title"], "Original 102")
+        self.assertEqual(movies[0]["year"], 2024)
+        self.assertEqual(movies[0]["poster"], f"{apollo.POSTER_ORIGIN}/1048/102.jpg")
+        self.assertEqual(self.source_calls, [apollo.FEED_URL])
+        self.assertEqual(self.search_queries, [])
+        self.assertEqual(self.posts, [])
+        self.apollo_feed.pop()
+        self.service.scan_source(apollo)
+        self.assertEqual(self.db.movie(2)["present"], 0)
+        self.assertEqual(self.source_calls, [apollo.FEED_URL] * 2)
+
+    def test_apollo_uses_shared_matching_language_gate_and_preview_mode(self):
+        self.enable_apollo()
+        self.connect("auto")
+        for language, state in (("en", "ready"), ("fr", "excluded"), ("", "review")):
+            with self.subTest(language=language):
+                self.db.write("DELETE FROM listings")
+                self.db.write("DELETE FROM history")
+                self.posts.clear()
+                self.movie_language = language
+                self.service.scan_source(apollo)
+                self.assertEqual(self.db.movie(1)["match_state"], state)
+                self.assertEqual(bool(self.posts), state == "ready")
+        self.db.write("DELETE FROM listings")
+        self.db.write("DELETE FROM history")
+        self.posts.clear()
+        self.movie_language = "en"
+        self.db.set_config("settings", self.db.settings() | {"mode": "preview"})
+        self.service.scan_source(apollo)
+        self.assertEqual(self.db.movie(1)["match_state"], "ready")
+        self.assertEqual(self.posts, [])
+
+    def test_apollo_and_tv3_share_request_history(self):
+        self.enable_apollo((101, 102))
+        self.connect("auto")
+        self.scan_all()
+        self.assertEqual([p["mediaId"] for p in self.posts], [101, 102])
+        self.assertEqual(self.db.rows("SELECT count(*) FROM listings")[0][0], 3)
+        self.assertEqual(self.db.rows("SELECT count(*) FROM history")[0][0], 2)
+        self.scan_all()
+        self.assertEqual(len(self.posts), 2)
+
+    def test_request_cap_is_shared_across_sources(self):
+        self.source_ids = [101, 102]
+        self.enable_apollo((103, 104))
+        self.connect("auto")
+        self.scan_all()
+        self.assertEqual([p["mediaId"] for p in self.posts], [101, 102])
+        self.assertEqual(self.db.rows("SELECT count(*) FROM listings WHERE match_state='ready'")[0][0], 4)
+        self.scan_all()
+        self.assertEqual([p["mediaId"] for p in self.posts], [101, 102, 103, 104])
+
+    def test_apollo_failure_preserves_catalogue_and_other_source_continues(self):
+        self.enable_apollo()
+        self.scan_all()
+        saved = dict(self.db.rows("SELECT * FROM listings WHERE source='apollo'")[0])
+        self.source_ids.append(103)
+        good_feed = list(self.apollo_feed)
+        for bad in ([], {}, good_feed + [{}]):
+            with self.subTest(feed=bad):
+                self.apollo_feed = bad
+                # Apollo fails first; TV3 must still run afterward.
+                self.service.sources = {"apollo": apollo, "tv3": tv3}
+                self.scan_all()
+                self.assertEqual(dict(self.db.movie(saved["id"])), saved)
+                self.assertTrue(self.db.rows("SELECT * FROM listings WHERE source='tv3' AND source_id='103'"))
+                self.assertIn("Apollo Kino:", self.db.rows("SELECT * FROM events WHERE success=0")[-1]["message"])
+        self.apollo_feed = good_feed
+        self.scan_all()
+        self.assertTrue(self.db.movie(saved["id"])["present"])
+
+    def test_apollo_source_labels_links_and_posters_in_full_and_live_views(self):
+        self.enable_apollo()
+        self.connect()
+        self.scan_all()
+        listing = self.db.rows("SELECT * FROM listings WHERE source='apollo'")[0]
+        for headers in ({}, {"X-TV2ARR-Refresh": "1"}):
+            with self.subTest(headers=headers):
+                response = self.browser.get("/movies", headers=headers)
+                page = BeautifulSoup(response.data, "html.parser")
+                cards = page.select(".movie-card")
+                self.assertTrue(any("Apollo Kino" in card.get_text() for card in cards))
+                self.assertTrue(any("TV3 Play" in card.get_text() for card in cards))
+                detail = BeautifulSoup(self.browser.get(f'/movies/{listing["id"]}', headers=headers).data, "html.parser")
+                self.assertEqual(detail.find("a", string="View on Apollo Kino")["href"], listing["url"])
+                self.assertEqual(detail.select_one(".poster img")["src"], listing["poster"])
+                self.assertIn(apollo.POSTER_ORIGIN, response.headers["Content-Security-Policy"])
+                self.assertNotIn("img-src *", response.headers["Content-Security-Policy"])
+                overview = self.browser.get("/", headers=headers).get_data(as_text=True)
+                self.assertIn(apollo.URL, overview)
 
     def test_manual_request_and_history_survive_recreation(self):
         self.connect()
@@ -372,7 +497,7 @@ class IntegrationTest(unittest.TestCase):
         self.connect("auto")
         self.search_available = False
         self.scan()
-        self.assertEqual(self.db.movie(1)["match_state"], "review")
+        self.assertEqual(self.db.movie(1)["match_state"], "missing")
         response = self.browser.post("/movies/1/match", data={
             "csrf": self.csrf("/movies/1"), "tmdb_id": 101,
         })
@@ -380,6 +505,172 @@ class IntegrationTest(unittest.TestCase):
         with self.service.scan_lock:
             self.assertEqual(self.db.movie(1)["auto_match"], 0)
             self.assertEqual([item["mediaId"] for item in self.posts], [101])
+
+    def test_missing_movies_are_visible_and_cannot_be_requested(self):
+        self.connect("auto")
+        self.search_available = False
+        self.scan()
+        listing = self.db.movie(1)
+        self.assertEqual(listing["match_state"], "missing")
+        self.assertEqual(listing["candidates"], "[]")
+        self.assertIsNone(listing["tmdb_id"])
+        self.assertIsNotNone(listing["match_checked_at"])
+        self.assertEqual(self.posts, [])
+        with self.assertRaises(SeerrError):
+            self.service.request(1)
+        for headers in ({}, {"X-TV2ARR-Refresh": "1"}):
+            for url in ("/movies", "/movies?view=review", "/movies?view=missing"):
+                with self.subTest(headers=headers, url=url):
+                    response = self.browser.get(url, headers=headers)
+                    self.assertEqual(response.status_code, 200)
+                    page = BeautifulSoup(response.data, "html.parser")
+                    self.assertEqual(page.select_one(".tag").get_text(), "Missing from TMDb")
+            detail = BeautifulSoup(self.browser.get("/movies/1", headers=headers).data, "html.parser")
+            self.assertIn("Missing from TMDb", detail.get_text())
+            self.assertIn("once 24 hours have passed", detail.get_text())
+            self.assertIsNone(detail.select_one('form[action$="/request"]'))
+            overview = BeautifulSoup(self.browser.get("/", headers=headers).data, "html.parser")
+            self.assertEqual(overview.select_one('a.metric[href$="view=review"] strong').get_text(), "1")
+        page = BeautifulSoup(self.browser.get("/movies?view=missing").data, "html.parser")
+        self.assertEqual(page.select_one('.filters [aria-current="page"]').get_text(), "Missing from TMDb")
+
+    def test_missing_retry_waits_24_hours_and_survives_restart(self):
+        self.connect()
+        self.search_available = False
+        checked = now_stamp()
+        with patch("tv2arr.service.now_stamp", return_value=checked):
+            self.scan()
+        query_count = len(self.search_queries)
+        self.service = self.service_factory(Storage(self.db.path))
+        self.search_available = True
+        with patch("tv2arr.service.now_stamp", return_value=checked + MISSING_RETRY_SECONDS - 1):
+            self.scan()
+        self.assertEqual(len(self.search_queries), query_count)
+        self.assertEqual(self.db.movie(1)["match_state"], "missing")
+        with patch("tv2arr.service.now_stamp", return_value=checked + MISSING_RETRY_SECONDS):
+            self.scan()
+        self.assertGreater(len(self.search_queries), query_count)
+        self.assertEqual(self.db.movie(1)["match_state"], "ready")
+        self.assertEqual(self.db.movie(1)["tmdb_id"], 101)
+        self.assertEqual(self.posts, [])
+        self.assertNotIn("Original 101", self.browser.get("/movies?view=missing").get_data(as_text=True))
+
+    def test_missing_retry_recovers_with_automatic_requests_and_language_gate(self):
+        self.connect("auto")
+        for language, state, requested in (("en", "ready", True), ("fr", "excluded", False),
+                                            ("", "review", False)):
+            with self.subTest(language=language):
+                self.db.write("DELETE FROM listings")
+                self.db.write("DELETE FROM history")
+                self.posts.clear()
+                self.search_available = False
+                self.scan()
+                self.assertEqual(self.posts, [])
+                self.search_available = True
+                self.movie_language = language
+                self.db.write("UPDATE listings SET match_checked_at=?", (now_stamp() - MISSING_RETRY_SECONDS,))
+                self.scan()
+                self.assertEqual(self.db.movie(1)["match_state"], state)
+                self.assertEqual(bool(self.posts), requested)
+
+    def test_missing_retries_skip_absent_movies_and_keep_manual_matches(self):
+        self.source_ids = [101, 102, 103]
+        self.connect()
+        self.search_available = False
+        self.scan()
+        self.db.save_match(2, {"id": 999, "title": "Manual selection", "originalLanguage": "lv"})
+        self.db.write("UPDATE listings SET match_checked_at=?", (now_stamp() - MISSING_RETRY_SECONDS,))
+        self.source_ids.remove(101)
+        query_count = len(self.search_queries)
+        self.search_available = True
+        self.scan()
+        self.assertEqual(self.search_queries[query_count:], ["Original 103", "Filma 103"])
+        self.assertEqual(self.db.movie(1)["match_state"], "missing")
+        self.assertEqual(self.db.movie(1)["present"], 0)
+        self.assertEqual(self.db.movie(2)["tmdb_id"], 999)
+        self.assertEqual(self.db.movie(2)["auto_match"], 0)
+        self.assertEqual(self.db.movie(3)["match_state"], "ready")
+
+    def test_missing_retry_error_preserves_status_and_retries_next_scan(self):
+        self.connect()
+        self.search_available = False
+        self.scan()
+        checked = now_stamp() - MISSING_RETRY_SECONDS
+        self.db.write("UPDATE listings SET match_checked_at=?", (checked,))
+        self.search_available = True
+        self.rejected_title = "Filma 101"  # Fail after the original-title search succeeded.
+        self.scan()
+        listing = self.db.movie(1)
+        self.assertEqual(listing["match_state"], "missing")
+        self.assertEqual(listing["match_checked_at"], checked)
+        self.assertEqual(listing["candidates"], "[]")
+        self.assertTrue(self.db.rows("SELECT * FROM events WHERE success=0"))
+        self.rejected_title = ""
+        self.scan()
+        self.assertEqual(self.db.movie(1)["match_state"], "ready")
+
+    def test_ambiguous_candidates_stay_in_review_without_daily_retry(self):
+        self.connect()
+        fake_seerr = self.fake_seerr
+
+        def wrong_year(request):
+            response = fake_seerr(request)
+            if request.url.path == "/seerr/api/v1/search":
+                data = response.json()
+                for item in data["results"]:
+                    item["releaseDate"] = "1990-01-01"
+                return httpx.Response(200, json=data)
+            return response
+
+        self.fake_seerr = wrong_year
+        self.scan()
+        self.assertEqual(self.db.movie(1)["match_state"], "review")
+        self.assertNotEqual(self.db.movie(1)["candidates"], "[]")
+        query_count = len(self.search_queries)
+        self.db.write("UPDATE listings SET match_checked_at=?", (now_stamp() - MISSING_RETRY_SECONDS,))
+        self.scan()
+        self.assertEqual(len(self.search_queries), query_count)
+        self.assertNotIn("Original 101", self.browser.get("/movies?view=missing").get_data(as_text=True))
+
+    def test_upgrade_rechecks_old_empty_searches_and_preserves_saved_matches(self):
+        self.source_ids = [101, 102]
+        self.connect()
+        self.scan()
+        self.service.request(2)
+        self.db.write("""UPDATE listings SET match_state='review', candidates='[]', tmdb_id=NULL,
+                         matched_title=NULL, language=NULL, auto_match=0 WHERE id=1""")
+        with self.db.connect() as db:
+            db.execute("ALTER TABLE listings DROP COLUMN match_checked_at")
+        migrated = Storage(self.db.path)
+        self.assertIsNone(migrated.movie(1)["match_checked_at"])
+        self.db.set_config("scan_matching_revision", 1)
+        self.db.set_config("scan_lookup_revision", self.db.settings()["lookup_revision"])
+        self.search_available = False
+        self.service.schedule_tick(now_stamp())
+        with self.service.scan_lock:
+            self.assertEqual(self.db.movie(1)["match_state"], "missing")
+            self.assertIsNotNone(self.db.movie(1)["match_checked_at"])
+            self.assertEqual(self.db.movie(2)["tmdb_id"], 102)
+            self.assertEqual(self.db.rows("SELECT count(*) FROM history")[0][0], 1)
+            self.assertFalse(self.service.seerr_lookup_due(self.db.settings()))
+
+    def test_connection_retest_retries_missing_movies_before_daily_deadline(self):
+        self.connect()
+        self.assertTrue(self.service.scan_async())
+        with self.service.scan_lock:
+            self.db.write("UPDATE listings SET match_state='new', tmdb_id=NULL WHERE id=1")
+        self.search_available = False
+        self.scan()
+        self.assertEqual(self.db.movie(1)["match_state"], "missing")
+        self.search_available = True
+        response = self.browser.post("/settings", data={
+            "csrf": self.csrf("/settings"), "url": "http://seerr:5055/seerr/",
+            "api_key": "", "mode": "manual", "interval": 6, "limit": 2, "action": "test",
+        }, follow_redirects=True)
+        self.assertIn("Seerr connection verified", response.get_data(as_text=True))
+        self.service.schedule_tick(now_stamp())
+        with self.service.scan_lock:
+            self.assertEqual(self.db.movie(1)["match_state"], "ready")
 
     def test_enabling_auto_mode_wakes_scan_for_existing_matches(self):
         self.connect()

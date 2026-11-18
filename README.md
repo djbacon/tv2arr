@@ -1,6 +1,6 @@
 # tv2arr
 
-tv2arr watches the latest movies section of [TV3 Play](https://play.tv3.lv/filmas/), matches listings through Seerr, and requests movies originally made in Latvian or English.
+tv2arr watches the latest movies section of [TV3 Play](https://play.tv3.lv/filmas/) and the [Apollo Kino catalogue](https://www.apollokino.lv/movies), matches listings through Seerr, and requests movies originally made in Latvian or English.
 
 ## Run on your LAN
 
@@ -15,9 +15,11 @@ Compose publishes the UI on the configured host IPv4 address and the app checks 
 ## Scans and requests
 
 - Scans run every six hours by default. Movie lookup runs as part of a scan and starts shortly after you connect or successfully retest Seerr. Movies from the first scan are eligible for automatic requests too.
+- Apollo Kino uses its public JSON feed at `https://www.apollokino.lv/xml/Events/`, fetching the catalogue and metadata once per scan. It includes current and upcoming releases; ballet, concert and opera genres and events not marked as movies are skipped. Seerr still verifies the original language, independently of dubbed screening languages. Failed, empty or malformed feeds preserve the last successful Apollo listings and log an error; the other source continues scanning.
 - A unique title-and-year match can become eligible automatically. Ambiguous matches go to the review queue, where you can search Seerr or enter a TMDB movie ID. Seerr must confirm the original language is Latvian or English before a request can be sent.
-- Movie titles use the matched movie's original title from Seerr when available, then TV3's original title, then its Latvian listing title. The Latvian title remains secondary text on the detail page. Existing matches also use original titles from their saved search results.
-- Manual mode is the default. Preview mode disables sending. Automatic mode requests all eligible, unrequested matches still on the source, including existing movies and manually saved matches. Enabling Automatic mode or saving an eligible match in that mode starts a scan. The per-scan cap counts new requests sent; remaining movies are handled on later scans. Movies already requested or available in Seerr are recorded without submitting another request.
+- Searches with no movie candidates show **Missing from TMDb** in the review queue and a dedicated movie filter. tv2arr retries them during scans once 24 hours have passed, while they remain on their source. This means Seerr found no candidates, not that absence from TMDb has been confirmed: try alternative titles or match by TMDb ID. If the movie is genuinely missing, contribute a TMDb entry with its IMDb ID. Search errors are logged separately and do not mark movies as missing. Existing unmatched listings are searched again after upgrading.
+- Movie titles use the matched movie's original title from Seerr when available, then the source's original title, then its Latvian listing title. The Latvian title remains secondary text on the detail page. Existing matches also use original titles from their saved search results.
+- Manual mode is the default. Preview mode disables sending. Automatic mode requests all eligible, unrequested matches still on the source, including existing movies and manually saved matches. Enabling Automatic mode or saving an eligible match in that mode starts a scan. The per-scan cap counts new requests sent across both sources; remaining movies are handled on later scans. Movies already requested or available in Seerr are recorded without submitting another request.
 - Local history tracks one request per TMDB movie across sources and qualities. tv2arr checks Seerr before submitting a request, even after the local record expires. If a submission has an uncertain outcome, use **Check Seerr again** on the movie to reconcile it.
 - Nightly maintenance at 04:00 Europe/Riga deletes movie request history past its first anniversary and catches up when the container restarts. The History page shows deletion counts and errors.
 
@@ -25,7 +27,7 @@ Compose publishes the UI on the configured host IPv4 address and the app checks 
 
 The named volume `tv2arr-data` holds the SQLite database. It includes the Seerr API key, so protect volume backups. For a file-level backup, stop tv2arr before copying the contents of the volume and start the service again afterward. Run `docker compose up -d --build` after uploading an updated release. Keep the data volume to preserve settings and history.
 
-Matched movies use their TMDB poster supplied through Seerr, falling back to the TV3 Play image when no poster is available. Scans fetch posters for existing matches that have not had one checked yet. The interface bundles the Font Awesome Free 7.2.0 solid font and its license locally.
+Matched movies use their TMDB poster supplied through Seerr, falling back to the source image when no poster is available. Scans fetch posters for existing matches that have not had one checked yet. The interface bundles the Font Awesome Free 7.2.0 solid font and its license locally.
 
 ## Development
 

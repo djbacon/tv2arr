@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS listings (
     enriched INTEGER NOT NULL DEFAULT 0,
     candidates TEXT NOT NULL DEFAULT '[]',
     match_state TEXT NOT NULL DEFAULT 'new',
+    match_checked_at INTEGER,
     tmdb_id INTEGER,
     matched_title TEXT,
     matched_original_title TEXT NOT NULL DEFAULT '',
@@ -81,6 +82,8 @@ class Storage:
                 db.execute("ALTER TABLE listings ADD COLUMN matched_original_title TEXT NOT NULL DEFAULT ''")
             if "matched_poster" not in columns:
                 db.execute("ALTER TABLE listings ADD COLUMN matched_poster TEXT")
+            if "match_checked_at" not in columns:
+                db.execute("ALTER TABLE listings ADD COLUMN match_checked_at INTEGER")
 
     @contextmanager
     def connect(self):

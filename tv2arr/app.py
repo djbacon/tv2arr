@@ -14,6 +14,7 @@ from flask import (
 from . import __version__
 from .seerr import LANGUAGES, SeerrError, base_url, find_candidates
 from .service import Service
+from .sources.apollo import POSTER_ORIGIN
 from .storage import RIGA, Storage, now_stamp
 from .titles import movie_title, title_language
 
@@ -82,7 +83,7 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
     @app.after_request
     def response_headers(response):
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' https://tv3cdn.lv https://image.tmdb.org; "
+            f"default-src 'self'; img-src 'self' https://tv3cdn.lv https://image.tmdb.org {POSTER_ORIGIN}; "
             "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
         )
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -95,7 +96,10 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
     def template_defaults():
         if "csrf" not in session:
             session["csrf"] = secrets.token_urlsafe(32)
-        return {"csrf": session["csrf"], "version": release, "languages": LANGUAGES}
+        return {
+            "csrf": session["csrf"], "version": release, "languages": LANGUAGES,
+            "sources": service.sources,
+        }
 
     @app.template_filter("localtime")
     def localtime(stamp):
@@ -140,7 +144,7 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
     def status_counts():
         return db.rows(
             """SELECT count(*) AS total,
-                      count(*) FILTER (WHERE match_state IN ('new','review')) AS review,
+                      count(*) FILTER (WHERE match_state IN ('new','review','missing')) AS review,
                       count(*) FILTER (WHERE match_state='ready') AS eligible
                FROM listings WHERE present=1"""
         )[0]
@@ -160,14 +164,15 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
         started = service.scan_async()
         if live_request():
             return {"started": started}, 202
-        flash("TV3 scan started." if started else "A scan is already running.")
+        flash("Catalogue scan started." if started else "A scan is already running.")
         return redirect(url_for("dashboard"), code=303)
 
     @app.get("/movies")
     def movies():
         view = request.args.get("view", "all")
         filters = {
-            "all": "", "review": "AND l.match_state IN ('new','review')",
+            "all": "", "review": "AND l.match_state IN ('new','review','missing')",
+            "missing": "AND l.match_state='missing'",
             "ready": "AND l.match_state='ready'", "excluded": "AND l.match_state='excluded'",
         }
         if view not in filters:
@@ -181,7 +186,7 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
             ((page - 1) * 24,),
         )
         return render_live(
-            "movies", title="Review queue" if view == "review" else "Movies",
+            "movies", title={"review": "Review queue", "missing": "Missing from TMDb"}.get(view, "Movies"),
             movies=listings[:24], view=view, page=page, more=len(listings) > 24,
         )
 

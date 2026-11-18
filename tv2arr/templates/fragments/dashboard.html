@@ -2,14 +2,14 @@
 <div class="hero">
   <div>
     <h1>Overview</h1>
-    <p>Discover films on TV3 Play and send eligible movies to Seerr.</p>
+    <p>Discover films on TV3 Play and Apollo Kino and send eligible movies to Seerr.</p>
   </div>
-  <form method="post" action="{{ url_for('scan') }}" aria-label="Run a TV3 scan" data-scan-form>
+  <form method="post" action="{{ url_for('scan') }}" aria-label="Scan movie sources" data-scan-form>
     {{ token() }}<button class="primary" type="submit" data-refresh="scan" aria-disabled="{{ 'true' if scanning else 'false' }}">{{ icon('refresh') }} {{ 'Scan in progress' if scanning else 'Scan now' }}</button>
   </form>
 </div>
 <div class="metrics" data-refresh="metrics">
-  {% for url, value, label, symbol in [(url_for('movies'), counts.total, 'Listed on TV3', 'film'), (url_for('movies', view='review'), counts.review, 'Awaiting review', 'check'), (url_for('movies', view='ready'), counts.eligible, 'Eligible matches', 'globe'), (url_for('history'), sent, 'Requests sent', 'clock')] %}
+  {% for url, value, label, symbol in [(url_for('movies'), counts.total, 'Source listings', 'film'), (url_for('movies', view='review'), counts.review, 'Awaiting review', 'check'), (url_for('movies', view='ready'), counts.eligible, 'Eligible matches', 'globe'), (url_for('history'), sent, 'Requests sent', 'clock')] %}
   <a class="metric" href="{{ url }}">{{ icon(symbol) }}<strong>{{ value }}</strong><span>{{ label }}</span></a>
   {% endfor %}
 </div>
@@ -22,12 +22,14 @@
       <li><strong>{{ event.kind }}{% if not event.success %} issue{% endif %}</strong><time>{{ event.at|localtime }}</time><p>{{ event.message }}</p></li>
       {% endfor %}
     </ul>
-    {% else %}<p class="muted">Run your first scan to preview TV3’s latest movies.</p>{% endif %}
+    {% else %}<p class="muted">Run your first scan to discover movies.</p>{% endif %}
   </section>
   <section class="panel">
     <h2>Sources and requests</h2>
     <dl class="meta">
-      <div><dt>Source</dt><dd><a href="https://play.tv3.lv/filmas/">TV3 Play</a></dd></div>
+      {% for source in sources.values() %}
+      <div><dt>Source</dt><dd><a href="{{ source.URL }}">{{ source.NAME }}</a></dd></div>
+      {% endfor %}
       <div><dt>Scan interval</dt><dd>Every {{ settings.interval }} hours</dd></div>
       <div><dt>Seerr</dt><dd>{{ settings.connection if settings.url else 'Not configured' }}</dd></div>
       <div><dt>Request mode</dt><dd>{{ {'manual':'Manual', 'auto':'Automatic', 'preview':'Preview only'}[settings.mode] }}</dd></div>
