@@ -1,4 +1,5 @@
 .env
+/compose.yaml
 .venv/
 __pycache__/
 *.py[cod]

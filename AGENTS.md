@@ -4,6 +4,7 @@
 
 - Before starting new modifications, review and commit any completed, uncommitted work from previous tasks. Keep that commit separate from the new task's changes. Never include secrets or unfinished, unrelated work in the commit.
 - After every modification, include in the final response the exact repository-relative files or folders that need to be uploaded to the server. State any required rebuild/restart steps. If no server upload is needed, say so explicitly.
+- Ship Compose configuration as `compose.example.yaml`. Treat `compose.yaml` as untracked local/server configuration: preserve it and never include it in release upload lists. On versioned releases, synchronize the example's image tag and build argument, and tell the user to update only `image` and `build.args.TV2ARR_VERSION` in their existing server `compose.yaml` before rebuilding.
 
 ## Versioning
 
