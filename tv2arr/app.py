@@ -298,21 +298,29 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
 
     @app.get("/history")
     def history():
-        page = max(1, min(request.args.get("page", 1, type=int), 100_000))
-        records = db.rows(
-            """SELECT h.*, l.original_title, l.matched_original_title, l.candidates, l.language
-               FROM history h LEFT JOIN listings l ON l.id=(
-                   SELECT id FROM listings WHERE tmdb_id=h.tmdb_id
-                   ORDER BY (matched_original_title != '') DESC, id LIMIT 1
-               ) ORDER BY h.recorded_at DESC, h.tmdb_id LIMIT 51 OFFSET ?""",
-            ((page - 1) * 50,),
-        )
-        events = db.rows("SELECT * FROM events ORDER BY id DESC LIMIT 30")
-        maintenance = db.rows("SELECT * FROM events WHERE kind='Maintenance' ORDER BY id DESC LIMIT 1")
-        return render_template(
-            "history.html", title="History", records=records[:50], events=events,
-            maintenance=maintenance[0] if maintenance else None, page=page, more=len(records) > 50,
-        )
+        tab = request.args.get("tab", "movies")
+        if tab not in {"movies", "maintenance"}:
+            abort(404)
+        context = {"tab": tab}
+        if tab == "movies":
+            page = max(1, min(request.args.get("page", 1, type=int), 100_000))
+            records = db.rows(
+                """SELECT h.*, l.original_title, l.matched_original_title, l.candidates, l.language
+                   FROM history h LEFT JOIN listings l ON l.id=(
+                       SELECT id FROM listings WHERE tmdb_id=h.tmdb_id
+                       ORDER BY (matched_original_title != '') DESC, id LIMIT 1
+                   ) ORDER BY h.recorded_at DESC, h.tmdb_id LIMIT 51 OFFSET ?""",
+                ((page - 1) * 50,),
+            )
+            context.update(records=records[:50], page=page, more=len(records) > 50)
+        else:
+            events = db.rows("SELECT * FROM events ORDER BY id DESC LIMIT 30")
+            maintenance = db.rows("SELECT * FROM events WHERE kind='Maintenance' ORDER BY id DESC LIMIT 1")
+            # Keep the latest cleanup visible even after many newer scan events.
+            if maintenance and all(event["id"] != maintenance[0]["id"] for event in events):
+                events.append(maintenance[0])
+            context["events"] = events
+        return render_template("history.html", title="History", **context)
 
     if start_scheduler:
         service.maintenance_if_due(now_stamp())

@@ -22,7 +22,7 @@ Compose publishes the UI on the configured host IPv4 address and the app checks 
 - Movie titles use the matched movie's original title from Seerr when available, then the source's original title, then its Latvian listing title. The Latvian title remains secondary text on the detail page. Existing matches also use original titles from their saved search results.
 - Manual mode is the default. Preview mode disables sending. Automatic mode requests all eligible, unrequested matches still on the source, including existing movies and manually saved matches. Enabling Automatic mode or saving an eligible match in that mode starts a scan. The per-scan cap counts new requests sent across all sources; remaining movies are handled on later scans. Movies already requested or available in Seerr are recorded without submitting another request.
 - Local history tracks one request per TMDB movie across sources and qualities. tv2arr checks Seerr before submitting a request, even after the local record expires. If a submission has an uncertain outcome, use **Check Seerr again** on the movie to reconcile it.
-- Nightly maintenance at 04:00 Europe/Riga deletes movie request history past its first anniversary and catches up when the container restarts. The History page shows deletion counts and errors.
+- Nightly maintenance at 04:00 Europe/Riga deletes movie request history past its first anniversary and catches up when the container restarts. **History → Movie history** shows paginated requests in a compact table. **History → Nightly maintenance** shows the scan and maintenance log, including deletion counts, errors and the latest cleanup even when it falls outside the recent log entries.
 
 ## Storage and updates
 

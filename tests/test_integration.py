@@ -446,7 +446,7 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(detail.h1["lang"], "lv")
         self.assertEqual(self.db.rows("SELECT title FROM history")[0]["title"], "Dzīvais ūdens")
         history = BeautifulSoup(self.browser.get("/history").data, "html.parser")
-        self.assertEqual(history.select_one(".activity strong").get_text(), "Dzīvais ūdens")
+        self.assertEqual(history.select_one(".history-title strong").get_text(), "Dzīvais ūdens")
 
     def test_existing_database_and_history_use_cached_original_titles(self):
         self.connect()
@@ -467,13 +467,13 @@ class IntegrationTest(unittest.TestCase):
         detail = BeautifulSoup(self.browser.get("/movies/1").data, "html.parser")
         self.assertEqual(detail.h1.get_text(), "Original 101")
         history = BeautifulSoup(self.browser.get("/history").data, "html.parser")
-        self.assertEqual(history.select_one(".activity strong").get_text(), "Original 101")
+        self.assertEqual(history.select_one(".history-title strong").get_text(), "Original 101")
         self.assertEqual(len(self.posts), 1)
 
         # History remains readable even if its source listing has been removed.
         self.db.write("DELETE FROM listings")
         history = BeautifulSoup(self.browser.get("/history").data, "html.parser")
-        self.assertEqual(history.select_one(".activity strong").get_text(), "Latvian translation")
+        self.assertEqual(history.select_one(".history-title strong").get_text(), "Latvian translation")
 
     def test_manual_match_updates_poster_and_rematch_without_poster_uses_source(self):
         self.connect()

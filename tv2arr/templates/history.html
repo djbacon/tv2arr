@@ -1,35 +1,61 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="hero"><div><h1>History</h1><p>Movie requests and maintenance activity.</p></div></div>
-<div class="columns history">
+<nav class="filters section-tabs" aria-label="History sections">
+  {% for value, label in [('movies','Movie history'), ('maintenance','Nightly maintenance')] %}
+  <a href="{{ url_for('history', tab=value) }}"{% if tab == value %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+{% if tab == 'movies' %}
   <section class="panel">
-    <h2>Movie history</h2>
+    <h2 id="movie-history">Movie history</h2>
     {% if records %}
-    <ul class="activity">
-      {% for record in records %}
-      <li><strong lang="{{ record.language or '' }}">{{ record|movie_title }}</strong><time>{{ record.recorded_at|localtime }}</time><p>{{ record.outcome }}{% if record.seerr_id %} · Seerr #{{ record.seerr_id }}{% endif %}</p></li>
-      {% endfor %}
-    </ul>
+    <div class="activity-scroll" tabindex="0" role="region" aria-labelledby="movie-history">
+      <table class="activity-table history-table" aria-labelledby="movie-history">
+        <thead><tr><th scope="col">Time</th><th scope="col">Movie</th><th scope="col">Source</th><th scope="col">Seerr ID</th><th scope="col">Result</th></tr></thead>
+        <tbody>
+          {% for record in records %}
+          <tr>
+            <td><time>{{ record.recorded_at|localtime }}</time></td>
+            <td class="history-title"><strong lang="{{ record.language or '' }}">{{ record|movie_title }}</strong></td>
+            <td>{{ sources[record.source].NAME if record.source in sources else record.source }}</td>
+            <td>{{ record.seerr_id if record.seerr_id else '-' }}</td>
+            <td>{{ record.outcome }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% if page > 1 or more %}
     <nav class="pagination" aria-label="History pages">
-      {% if page > 1 %}<a class="button" href="{{ url_for('history', page=page-1) }}">Previous</a>{% endif %}
-      {% if more %}<a class="button" href="{{ url_for('history', page=page+1) }}">Next</a>{% endif %}
+      {% if page > 1 %}<a class="button" href="{{ url_for('history', tab='movies', page=page-1) }}">Previous</a>{% endif %}
+      {% if more %}<a class="button" href="{{ url_for('history', tab='movies', page=page+1) }}">Next</a>{% endif %}
     </nav>
     {% endif %}
     {% else %}<p class="muted">No requests recorded yet.</p>{% endif %}
   </section>
+{% else %}
   <section class="panel">
-    <h2>Nightly maintenance</h2>
-    <p>Daily at 04:00 Riga time. Movie history is retained for one year.</p>
-    {% if maintenance %}<p class="muted">{{ maintenance.at|localtime }} · {{ maintenance.message }}</p>{% endif %}
-    <h2>Scan and maintenance log</h2>
+    <h2 id="nightly-maintenance">Nightly maintenance</h2>
+    <p class="muted">Daily at 04:00 Riga time. Movie history is retained for one year.</p>
     {% if events %}
-    <ul class="activity">
-      {% for event in events %}
-      <li><strong>{{ event.kind }}{% if not event.success %} issue{% endif %}</strong><time>{{ event.at|localtime }}</time><p>{{ event.message }}</p></li>
-      {% endfor %}
-    </ul>
+    <div class="activity-scroll" tabindex="0" role="region" aria-labelledby="nightly-maintenance">
+      <table class="activity-table" aria-labelledby="nightly-maintenance">
+        <caption>Scan and maintenance log</caption>
+        <thead><tr><th scope="col">Time</th><th scope="col">Activity</th><th scope="col">Result</th><th scope="col">Details</th></tr></thead>
+        <tbody>
+          {% for event in events %}
+          <tr>
+            <td><time>{{ event.at|localtime }}</time></td>
+            <td>{{ event.kind }}</td>
+            <td class="activity-{{ 'success' if event.success else 'issue' }}">{{ 'Success' if event.success else 'Issue' }}</td>
+            <td>{{ event.message }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% else %}<p class="muted">No activity recorded yet.</p>{% endif %}
   </section>
-</div>
+{% endif %}
 {% endblock %}
