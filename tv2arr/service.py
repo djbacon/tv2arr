@@ -49,7 +49,7 @@ class Service:
                 matching_changed = self.db.config("scan_matching_revision", 0) != MATCHING_REVISION
                 self.db.write(
                     """UPDATE listings SET match_state='new'
-                       WHERE present=1 AND match_state IN ('review','missing') AND tmdb_id IS NULL
+                       WHERE present=1 AND ignored=0 AND match_state IN ('review','missing') AND tmdb_id IS NULL
                        AND (candidates='[]' OR ?)""",
                     (matching_changed,),
                 )
@@ -77,7 +77,7 @@ class Service:
             listings = catalogue.listings
             new, baseline = self.db.observe(source.SLUG, listings, now_stamp())
             queue = self.db.rows(
-                """SELECT * FROM listings WHERE source=? AND present=1
+                """SELECT * FROM listings WHERE source=? AND present=1 AND ignored=0
                    AND (enriched=0 OR match_state='new'
                         OR (match_state='missing' AND tmdb_id IS NULL
                             AND (match_checked_at IS NULL OR match_checked_at <= ?))
@@ -161,7 +161,7 @@ class Service:
             return 0
 
         listings = self.db.rows(
-            """SELECT l.* FROM listings l WHERE l.source=? AND l.present=1
+            """SELECT l.* FROM listings l WHERE l.source=? AND l.present=1 AND l.ignored=0
                AND l.match_state='ready' AND l.tmdb_id IS NOT NULL
                AND NOT EXISTS (SELECT 1 FROM history h WHERE h.tmdb_id=l.tmdb_id)
                ORDER BY l.first_seen DESC, l.id""",
@@ -186,6 +186,8 @@ class Service:
     def _request(self, listing_id, automatic):
         settings = self.db.settings()
         listing = self.db.movie(listing_id)
+        if listing and listing["ignored"]:
+            raise SeerrError("Restore this movie before requesting it.")
         if settings["mode"] == "preview" or (automatic and settings["mode"] != "auto"):
             raise SeerrError("Request sending is disabled by the current mode.")
         if not listing or listing["match_state"] != "ready" or listing["language"] not in LANGUAGES:

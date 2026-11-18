@@ -166,6 +166,162 @@ class IntegrationTest(unittest.TestCase):
     def scan(self):
         self.service.scan_source(tv3)
 
+    def ignore(self, listing_id=1, ignored=True):
+        return self.browser.post(f"/movies/{listing_id}/ignore", data={
+            "csrf": self.csrf(f"/movies/{listing_id}"), "ignored": "1" if ignored else "0",
+        })
+
+    def test_ignored_movies_are_hidden_from_other_filters_and_live_views(self):
+        self.source_ids = [101, 102]
+        self.connect()
+        self.scan()
+        before = dict(self.db.movie(1))
+        self.assertEqual(self.ignore().status_code, 303)
+        self.assertEqual(self.ignore().status_code, 303)  # Repeated submissions are not toggles.
+        self.assertEqual(dict(self.db.movie(1)), before | {"ignored": 1})
+        for state in ("ready", "review", "missing", "excluded"):
+            self.db.write("UPDATE listings SET match_state=? WHERE id=1", (state,))
+            for headers in ({}, {"X-TV2ARR-Refresh": "1"}):
+                for view in ("all", "ready", "review", "missing", "excluded", "ignored"):
+                    with self.subTest(state=state, view=view, headers=headers):
+                        page = BeautifulSoup(self.browser.get(f"/movies?view={view}", headers=headers).data, "html.parser")
+                        titles = [h.get_text() for h in page.select(".movie-copy h2")]
+                        self.assertEqual("Original 101" in titles, view == "ignored")
+                        if view == "ignored":
+                            self.assertEqual(titles, ["Original 101"])
+                            self.assertEqual(page.select_one(".tag").get_text(), "Ignored")
+        overview = BeautifulSoup(self.browser.get("/").data, "html.parser")
+        self.assertEqual(overview.select_one('a.metric[href="/movies"] strong').get_text(), "1")
+        self.assertEqual(overview.select_one('a.metric[href$="view=ready"] strong').get_text(), "1")
+        self.assertEqual(overview.select_one('a.metric[href$="view=review"] strong').get_text(), "0")
+
+    def test_ignore_and_restore_preserve_matches_and_profile_actions(self):
+        self.connect()
+        self.scan()
+        before = dict(self.db.movie(1))
+        self.ignore()
+        for headers in ({}, {"X-TV2ARR-Refresh": "1"}):
+            page = BeautifulSoup(self.browser.get("/movies/1", headers=headers).data, "html.parser")
+            self.assertEqual(page.select_one('form[action$="/ignore"] button').get_text(), "Restore movie")
+            self.assertEqual(page.select_one('form[action$="/ignore"] button')["value"], "0")
+            self.assertIsNone(page.select_one('form[action$="/request"]'))
+            self.assertEqual(page.find("a", string="View on TMDb")["href"], "https://www.themoviedb.org/movie/101")
+            if not headers:
+                self.assertEqual(page.select_one("a.back")["href"], "/movies?view=ignored")
+        self.assertEqual(self.ignore(ignored=False).status_code, 303)
+        self.assertEqual(dict(self.db.movie(1)), before)
+        self.assertEqual(self.posts, [])
+        page = BeautifulSoup(self.browser.get("/movies").data, "html.parser")
+        self.assertEqual(page.select_one(".movie-copy h2").get_text(), "Original 101")
+
+    def test_ignored_movies_skip_requests_and_restore_resumes_automatic_mode(self):
+        self.source_ids = [101, 102]
+        self.connect()
+        self.scan()
+        self.ignore()
+        self.db.set_config("settings", self.db.settings() | {"mode": "auto"})
+        self.scan()
+        self.assertEqual([post["mediaId"] for post in self.posts], [102])
+        lookups = len(self.movie_lookups)
+        for automatic in (False, True):
+            with self.assertRaisesRegex(SeerrError, "Restore this movie"):
+                self.service.request(1, automatic=automatic)
+        response = self.browser.post("/movies/1/request", data={"csrf": self.csrf("/movies/1")}, follow_redirects=True)
+        self.assertIn("Restore this movie", response.get_data(as_text=True))
+        self.assertEqual(len(self.movie_lookups), lookups)
+        self.assertEqual(self.ignore(ignored=False).status_code, 303)
+        with self.service.scan_lock:
+            self.assertEqual([post["mediaId"] for post in self.posts], [102, 101])
+            self.assertFalse(self.db.movie(1)["ignored"])
+
+    def test_ignore_survives_rescans_absence_and_restart_and_skips_missing_retries(self):
+        self.source_ids = [101, 102]
+        self.connect()
+        self.search_available = False
+        self.scan()
+        self.ignore()
+        self.db.write("UPDATE listings SET match_checked_at=? WHERE id=1", (now_stamp() - MISSING_RETRY_SECONDS,))
+        self.db.set_config("scan_matching_revision", 0)
+        self.search_queries.clear()
+        self.scan_all()
+        self.assertTrue(self.db.movie(1)["ignored"])
+        self.assertEqual(self.db.movie(1)["match_state"], "missing")
+        self.assertNotIn("Original 101", self.search_queries)
+        self.assertNotIn("Filma 101", self.search_queries)
+        self.source_ids.remove(101)
+        self.scan()
+        self.assertFalse(self.db.movie(1)["present"])
+        page = BeautifulSoup(self.browser.get("/movies?view=ignored").data, "html.parser")
+        self.assertEqual(page.select_one(".movie-copy h2").get_text(), "Original 101")
+        self.source_ids.append(101)
+        self.scan()
+        restarted = Storage(self.db.path)
+        self.assertTrue(restarted.movie(1)["ignored"])
+        self.assertTrue(restarted.movie(1)["present"])
+
+    def test_manual_rematch_cannot_clear_ignore_or_start_automatic_requests(self):
+        self.connect()
+        self.search_available = False
+        self.scan()
+        self.ignore()
+        self.db.set_config("settings", self.db.settings() | {"mode": "auto"})
+        with patch.object(self.service, "scan_async") as start:
+            response = self.browser.post("/movies/1/match", data={
+                "csrf": self.csrf("/movies/1"), "tmdb_id": 101,
+            })
+        self.assertEqual(response.status_code, 303)
+        self.assertTrue(self.db.movie(1)["ignored"])
+        self.assertEqual(self.db.movie(1)["tmdb_id"], 101)
+        self.assertEqual(self.db.movie(1)["match_state"], "ready")
+        start.assert_not_called()
+        self.assertEqual(self.posts, [])
+
+    def test_ignored_preferences_migrate_without_losing_request_history(self):
+        self.connect()
+        self.scan()
+        self.service.request(1)
+        history = [dict(row) for row in self.db.rows("SELECT * FROM history")]
+        with self.db.connect() as db:
+            db.execute("ALTER TABLE listings DROP COLUMN ignored")
+        migrated = Storage(self.db.path)
+        self.assertFalse(migrated.movie(1)["ignored"])
+        self.assertEqual(migrated.movie(1)["tmdb_id"], 101)
+        self.ignore()
+        self.assertTrue(Storage(self.db.path).movie(1)["ignored"])
+        self.assertEqual([dict(row) for row in self.db.rows("SELECT * FROM history")], history)
+        self.assertEqual(self.ignore(ignored=False).status_code, 303)
+        self.assertEqual(self.service.request(1), "Already in movie history")
+        self.assertEqual(len(self.posts), 1)
+
+    def test_ignore_requires_csrf_and_an_explicit_valid_action(self):
+        self.connect()
+        self.scan()
+        self.assertEqual(self.browser.get("/movies/1/ignore").status_code, 405)
+        self.assertEqual(self.browser.post("/movies/1/ignore", data={"ignored": "1"}).status_code, 403)
+        csrf = self.csrf("/movies/1")
+        for value in (None, "true", "2"):
+            data = {"csrf": csrf}
+            if value is not None:
+                data["ignored"] = value
+            self.assertEqual(self.browser.post("/movies/1/ignore", data=data).status_code, 400)
+        self.assertFalse(self.db.movie(1)["ignored"])
+        self.assertEqual(self.browser.post("/movies/999/ignore", data={"csrf": csrf, "ignored": "1"}).status_code, 404)
+
+    def test_ignored_filter_applies_before_pagination_and_keeps_absent_entries(self):
+        self.source_ids = list(range(101, 127))
+        self.connect()
+        self.scan()
+        self.db.write("UPDATE listings SET ignored=1 WHERE id<=25")
+        self.db.write("UPDATE listings SET present=0 WHERE id=25")
+        first = BeautifulSoup(self.browser.get("/movies?view=ignored").data, "html.parser")
+        self.assertEqual(len(first.select(".movie-card")), 24)
+        next_url = first.select_one("nav.pagination a")["href"]
+        self.assertEqual(next_url, "/movies?view=ignored&page=2")
+        second = BeautifulSoup(self.browser.get(next_url).data, "html.parser")
+        self.assertEqual(second.select_one(".movie-copy h2").get_text(), "Original 125")
+        active = BeautifulSoup(self.browser.get("/movies").data, "html.parser")
+        self.assertEqual([h.get_text() for h in active.select(".movie-copy h2")], ["Original 126"])
+
     def enable_apollo(self, ids=(102,)):
         self.service.sources[apollo.SLUG] = apollo
         self.apollo_feed = [
@@ -400,7 +556,7 @@ class IntegrationTest(unittest.TestCase):
         self.scan()
         response = self.browser.get("/movies")
         self.assertIn("Original 101", response.get_data(as_text=True))
-        self.assertNotIn("Ignore", response.get_data(as_text=True))
+        self.assertNotIn("Ignore", [h.get_text() for h in BeautifulSoup(response.data, "html.parser").select(".movie-copy h2")])
         self.assertEqual(self.browser.post("/movies/1/request").status_code, 403)
         response = self.browser.post("/movies/1/request", data={
             "csrf": self.csrf("/movies/1"),

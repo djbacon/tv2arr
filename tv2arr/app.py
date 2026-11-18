@@ -149,7 +149,7 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
             """SELECT count(*) AS total,
                       count(*) FILTER (WHERE match_state IN ('new','review','missing')) AS review,
                       count(*) FILTER (WHERE match_state='ready') AS eligible
-               FROM listings WHERE present=1"""
+               FROM listings WHERE present=1 AND ignored=0"""
         )[0]
 
     @app.get("/")
@@ -177,19 +177,21 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
             "all": "", "review": "AND l.match_state IN ('new','review','missing')",
             "missing": "AND l.match_state='missing'",
             "ready": "AND l.match_state='ready'", "excluded": "AND l.match_state='excluded'",
+            "ignored": "",
         }
         if view not in filters:
             abort(404)
         page = max(1, min(request.args.get("page", 1, type=int), 100_000))
+        visibility = "l.ignored=1" if view == "ignored" else "l.present=1 AND l.ignored=0"
         listings = db.rows(
             f"""SELECT l.*, h.outcome FROM listings l
                 LEFT JOIN history h ON h.tmdb_id=l.tmdb_id
-                WHERE l.present=1 {filters[view]}
+                WHERE {visibility} {filters[view]}
                 ORDER BY l.first_seen DESC, l.id LIMIT 25 OFFSET ?""",
             ((page - 1) * 24,),
         )
         return render_live(
-            "movies", title={"review": "Review queue", "missing": "Missing from TMDb"}.get(view, "Movies"),
+            "movies", title={"review": "Review queue", "missing": "Missing from TMDb", "ignored": "Ignored movies"}.get(view, "Movies"),
             movies=listings[:24], view=view, page=page, more=len(listings) > 24,
         )
 
@@ -243,7 +245,10 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
                         "review": "Movie matched. Seerr has no verified original language for it.",
                     }
                     flash(statuses[state])
-                    scan_after_match = state == "ready" and db.settings()["mode"] == "auto"
+                    scan_after_match = (
+                        state == "ready" and not db.movie(listing_id)["ignored"]
+                        and db.settings()["mode"] == "auto"
+                    )
             except SeerrError as error:
                 flash(str(error), "error")
             finally:
@@ -259,6 +264,25 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
             flash(service.request(listing_id) + ".")
         except SeerrError as error:
             flash(str(error), "error")
+        return redirect(url_for("movie", listing_id=listing_id), code=303)
+
+    @app.post("/movies/<int:listing_id>/ignore")
+    def ignore_movie(listing_id):
+        value = request.form.get("ignored")
+        if value not in {"0", "1"}:
+            abort(400)
+        ignored = value == "1"
+        with service.request_lock:
+            listing = get_movie(listing_id)
+            changed = bool(listing["ignored"]) != ignored
+            db.write("UPDATE listings SET ignored=? WHERE id=?", (ignored, listing_id))
+            scan_after_restore = (
+                changed and not ignored and listing["present"]
+                and db.settings()["mode"] == "auto"
+            )
+        flash("Movie ignored." if ignored else "Movie restored.")
+        if scan_after_restore:
+            service.scan_async()
         return redirect(url_for("movie", listing_id=listing_id), code=303)
 
     @app.route("/settings", methods=["GET", "POST"])

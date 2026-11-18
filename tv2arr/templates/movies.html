@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="hero">
-  <div><h1>{{ title }}</h1><p>{% if view == 'review' %}Review unmatched titles and verify the film before requesting it.{% elif view == 'missing' %}No movie candidates found through Seerr. Retried during scans once 24 hours have passed.{% else %}Films discovered on {{ source_names }}.{% endif %}</p></div>
+  <div><h1>{{ title }}</h1><p>{% if view == 'ignored' %}Movies you have ignored. Restore them from a movie profile.{% elif view == 'review' %}Review unmatched titles and verify the film before requesting it.{% elif view == 'missing' %}No movie candidates found through Seerr. Retried during scans once 24 hours have passed.{% else %}Films discovered on {{ source_names }}.{% endif %}</p></div>
 </div>
 <nav class="filters" aria-label="Movie filters">
-  {% for value, label in [('all','All listings'), ('ready','Eligible'), ('review','Needs review'), ('missing','Missing from TMDb'), ('excluded','Other languages')] %}
+  {% for value, label in [('all','All listings'), ('ready','Eligible'), ('review','Needs review'), ('missing','Missing from TMDb'), ('excluded','Other languages'), ('ignored','Ignored')] %}
     <a href="{{ url_for('movies', view=value) }}"{% if view == value %} aria-current="page"{% endif %}>{{ label }}</a>
   {% endfor %}
 </nav>

@@ -15,7 +15,9 @@
       <div class="movie-copy">
         <h2 lang="{{ movie|title_language }}">{{ movie|movie_title }}</h2>
         <p>{% if movie.year %}{{ movie.year }} · {% endif %}{{ sources[movie.source].NAME if movie.source in sources else movie.source }}</p>
-        {% if movie.outcome != 'Request sent to Seerr' %}
+        {% if movie.ignored %}
+        <span class="tag">Ignored</span>
+        {% elif movie.outcome != 'Request sent to Seerr' %}
         <span class="tag {{ movie.match_state }}">{{ movie.outcome or {'new':'Awaiting lookup', 'review':'Needs review', 'missing':'Missing from TMDb', 'ready':languages.get(movie.language, 'Eligible'), 'excluded':'Other language'}[movie.match_state] }}</span>
         {% endif %}
       </div>
@@ -23,7 +25,7 @@
   </li>
   {% endfor %}
 </ul>
-{% else %}<p class="panel muted">No movies in this view. Scan movie sources from the overview to look for new listings.</p>{% endif %}
+{% else %}<p class="panel muted">{% if view == 'ignored' %}No ignored movies.{% else %}No movies in this view. Scan movie sources from the overview to look for new listings.{% endif %}</p>{% endif %}
 {% if page > 1 or more %}
 <nav class="pagination" aria-label="Movie pages">
   {% if page > 1 %}<a class="button" href="{{ url_for('movies', view=view, page=page-1) }}">Previous</a>{% endif %}

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<a class="back" href="{{ url_for('movies') }}">All movies</a>
+<a class="back" href="{{ url_for('movies', view='ignored') if movie.ignored else url_for('movies') }}">{{ 'Ignored movies' if movie.ignored else 'All movies' }}</a>
 {% include "fragments/movie-detail.html" %}
 <section class="panel match-panel">
   <h2>Match this listing</h2>

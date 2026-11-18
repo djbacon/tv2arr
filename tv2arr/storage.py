@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS listings (
     first_seen INTEGER NOT NULL,
     last_seen INTEGER NOT NULL,
     present INTEGER NOT NULL DEFAULT 1,
+    ignored INTEGER NOT NULL DEFAULT 0,
     baseline INTEGER NOT NULL,
     original_title TEXT NOT NULL DEFAULT '',
     year INTEGER,
@@ -84,6 +85,8 @@ class Storage:
                 db.execute("ALTER TABLE listings ADD COLUMN matched_poster TEXT")
             if "match_checked_at" not in columns:
                 db.execute("ALTER TABLE listings ADD COLUMN match_checked_at INTEGER")
+            if "ignored" not in columns:
+                db.execute("ALTER TABLE listings ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0")
 
     @contextmanager
     def connect(self):
