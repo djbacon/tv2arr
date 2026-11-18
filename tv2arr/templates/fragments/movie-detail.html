@@ -17,11 +17,15 @@
     {% if movie.match_state == 'missing' %}
     <p class="muted">No TMDb movie candidates were found through Seerr. tv2arr retries during scans once 24 hours have passed, while this movie remains listed on its source. Try another title or match by TMDb ID below. If the movie is genuinely missing, add it to TMDb with its IMDb ID.</p>
     {% endif %}
-    {% if movie.match_state == 'ready' and mode != 'preview' and (not history or history.outcome == 'Confirmation needed') %}
-    <form method="post" action="{{ url_for('request_movie', listing_id=movie.id) }}" aria-label="Request this movie">
-      {{ token() }}<button class="primary" type="submit">{{ 'Check Seerr again' if history else 'Request in Seerr' }}</button>
-    </form>
-    {% elif mode == 'preview' and movie.match_state == 'ready' %}
+    <div class="actions">
+      {% if movie.match_state == 'ready' and mode != 'preview' and (not history or history.outcome == 'Confirmation needed') %}
+      <form method="post" action="{{ url_for('request_movie', listing_id=movie.id) }}" aria-label="Request this movie">
+        {{ token() }}<button class="primary" type="submit">{{ 'Check Seerr again' if history else 'Request in Seerr' }}</button>
+      </form>
+      {% endif %}
+      {% if movie.tmdb_id %}<a class="button" href="https://www.themoviedb.org/movie/{{ movie.tmdb_id }}">View on TMDb</a>{% endif %}
+    </div>
+    {% if mode == 'preview' and movie.match_state == 'ready' %}
     <p class="muted">Sending is disabled in Preview mode.</p>
     {% endif %}
   </div>
