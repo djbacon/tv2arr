@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<a class="back" href="{{ url_for('movies') }}">All movies</a>
+{% include "fragments/movie-detail.html" %}
+<section class="panel match-panel">
+  <h2>Match this listing</h2>
+  <search>
+    <form class="inline-form" method="get" action="{{ url_for('movie', listing_id=movie.id) }}" aria-label="Search Seerr">
+      <div class="field"><label for="q">Search Seerr by title</label><input type="search" id="q" name="q" value="{{ search }}" maxlength="160" required></div>
+      <button type="submit">Search</button>
+    </form>
+  </search>
+  {% include "fragments/movie-candidates.html" %}
+  <form class="inline-form" method="post" action="{{ url_for('match_movie', listing_id=movie.id) }}" aria-label="Match by TMDB movie ID">
+    {{ token() }}
+    <div class="field"><label for="tmdb-id">TMDB movie ID</label><input id="tmdb-id" name="tmdb_id" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="10" required></div>
+    <button type="submit">Use TMDB ID</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="hero"><div><h1>Settings</h1><p>Connect Seerr and choose how tv2arr handles matched films.</p></div></div>
+<form class="columns settings" method="post" action="{{ url_for('settings') }}">
+  {{ token() }}
+  <section class="panel">
+    <h2>Seerr connection</h2>
+    <p class="muted">{{ settings.connection }}</p>
+    <div class="field">
+      <label for="seerr-url">Seerr URL</label>
+      <input type="url" id="seerr-url" name="url" value="{{ settings.url }}" required aria-describedby="url-hint" maxlength="512" spellcheck="false" autocapitalize="none">
+      <span id="url-hint" class="muted">Use a URL the tv2arr container can reach, such as http://192.168.1.20:5055.</span>
+    </div>
+    <div class="field">
+      <label for="api-key">Seerr API key</label>
+      <input id="api-key" name="api_key" type="password" maxlength="512" aria-describedby="key-hint" autocomplete="off"{% if not settings.api_key %} required{% endif %}>
+      <span id="key-hint" class="muted">{% if settings.api_key %}A key is saved. Leave this blank to keep it for this URL.{% else %}Find the API key in Seerr under Settings, then General.{% endif %}</span>
+    </div>
+    <div class="field">
+      <label for="user-id">Requesting user ID (optional)</label>
+      <input id="user-id" name="user_id" type="text" inputmode="numeric" pattern="[0-9]+" maxlength="10" value="{{ settings.user_id or '' }}">
+    </div>
+    <div class="choice"><input type="checkbox" id="is4k" name="is4k"{% if settings.is4k %} checked{% endif %}><label for="is4k">Request the 4K version</label></div>
+  </section>
+  <section class="panel">
+    <h2>Scans and requests</h2>
+    <p class="muted">TV3 Play · Original language must be Latvian or English.</p>
+    <div class="field"><label for="interval">Scan interval (hours)</label><input id="interval" name="interval" type="number" min="1" max="168" value="{{ settings.interval }}" required></div>
+    <fieldset>
+      <legend>Request mode</legend>
+      {% for value, label in [('manual','Manual requests'), ('preview','Preview only'), ('auto','Request all eligible matches automatically')] %}
+      <div class="choice"><input type="radio" id="mode-{{ value }}" name="mode" value="{{ value }}"{% if settings.mode == value %} checked{% endif %}><label for="mode-{{ value }}">{{ label }}</label></div>
+      {% endfor %}
+    </fieldset>
+    <div class="field"><label for="limit">Automatic requests per scan</label><input id="limit" name="limit" type="number" min="1" max="50" value="{{ settings.limit }}" required></div>
+    <p class="muted">History expires after one year. Cleanup runs daily at 04:00 Riga time.</p>
+  </section>
+  <div class="actions">
+    <button class="primary" type="submit" name="action" value="save">Save settings</button>
+    <button type="submit" name="action" value="test">Test connection and save</button>
+  </div>
+</form>
+{% endblock %}

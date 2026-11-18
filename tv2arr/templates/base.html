@@ -1,0 +1,38 @@
+{% from "macros.html" import icon, token with context %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · tv2arr</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script type="module" src="{{ url_for('static', filename='version.js') }}"></script>
+  {% if request.endpoint in ['dashboard', 'movies', 'movie'] %}
+  <script type="module" src="{{ url_for('static', filename='live.js') }}"></script>
+  {% endif %}
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="top">
+  <div class="shell top-inner">
+    <a class="brand" href="{{ url_for('dashboard') }}">{{ icon('film') }} tv2arr <small class="brand-version" data-version-url="{{ url_for('app_version') }}">{{ version }}</small></a>
+    {% if session.authenticated %}
+    <nav aria-label="Main navigation">
+      {% for endpoint, label, symbol in [('dashboard','Overview','grid'), ('movies','Movies','film'), ('review','Review queue','check'), ('history','History','clock'), ('settings','Settings','gear')] %}
+        {% set current = request.endpoint == endpoint and (endpoint != 'movies' or request.args.get('view') != 'review') or endpoint == 'review' and request.endpoint == 'movies' and request.args.get('view') == 'review' %}
+        <a href="{{ url_for('movies', view='review') if endpoint == 'review' else url_for(endpoint) }}"{% if current %} aria-current="page"{% endif %}>{{ icon(symbol) }} {{ label }}</a>
+      {% endfor %}
+    </nav>
+    <form method="post" action="{{ url_for('logout') }}" aria-label="Sign out">{{ token() }}<button class="quiet" type="submit">Sign out</button></form>
+    {% endif %}
+  </div>
+</header>
+<main class="shell main" id="content">
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <p class="notice {{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>
+  {% endfor %}
+  {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

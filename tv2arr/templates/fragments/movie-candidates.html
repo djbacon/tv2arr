@@ -1,0 +1,17 @@
+{% from "macros.html" import token with context %}
+<div{% if not search %} data-refresh="movie-candidates"{% endif %}>
+  {% if candidates %}
+    <ul class="activity candidates">
+      {% for candidate in candidates %}
+      {% set candidate_title = candidate.originalTitle or candidate.title %}
+      <li>
+        <div><strong lang="{{ candidate.language if candidate.originalTitle else '' }}">{{ candidate_title }}</strong><p>{% if candidate.title != candidate_title %}<span lang="">{{ candidate.title }}</span> · {% endif %}{{ candidate.year or 'Unknown year' }} · {{ languages.get(candidate.language, candidate.language or 'Unknown language') }}</p></div>
+        <form method="post" action="{{ url_for('match_movie', listing_id=movie.id) }}" aria-label="Match {{ candidate_title }} ({{ candidate.year or candidate.id }})">
+          {{ token() }}<input type="hidden" name="tmdb_id" value="{{ candidate.id }}">
+          <button type="submit" aria-label="Match {{ candidate_title }} ({{ candidate.year or candidate.id }})">Match</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  {% elif search %}<p class="muted">No movies found for this title.</p>{% endif %}
+</div>

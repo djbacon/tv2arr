@@ -1,0 +1,8 @@
+**
+!Dockerfile
+!requirements.txt
+!VERSION
+!tv2arr
+!tv2arr/**
+**/__pycache__
+**/*.pyc

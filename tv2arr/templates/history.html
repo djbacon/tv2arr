@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="hero"><div><h1>History</h1><p>Movie requests and maintenance activity.</p></div></div>
+<div class="columns history">
+  <section class="panel">
+    <h2>Movie history</h2>
+    {% if records %}
+    <ul class="activity">
+      {% for record in records %}
+      <li><strong lang="{{ record.language or '' }}">{{ record|movie_title }}</strong><time>{{ record.recorded_at|localtime }}</time><p>{{ record.outcome }}{% if record.seerr_id %} · Seerr #{{ record.seerr_id }}{% endif %}</p></li>
+      {% endfor %}
+    </ul>
+    {% if page > 1 or more %}
+    <nav class="pagination" aria-label="History pages">
+      {% if page > 1 %}<a class="button" href="{{ url_for('history', page=page-1) }}">Previous</a>{% endif %}
+      {% if more %}<a class="button" href="{{ url_for('history', page=page+1) }}">Next</a>{% endif %}
+    </nav>
+    {% endif %}
+    {% else %}<p class="muted">No requests recorded yet.</p>{% endif %}
+  </section>
+  <section class="panel">
+    <h2>Nightly maintenance</h2>
+    <p>Daily at 04:00 Riga time. Movie history is retained for one year.</p>
+    {% if maintenance %}<p class="muted">{{ maintenance.at|localtime }} · {{ maintenance.message }}</p>{% endif %}
+    <h2>Scan and maintenance log</h2>
+    {% if events %}
+    <ul class="activity">
+      {% for event in events %}
+      <li><strong>{{ event.kind }}{% if not event.success %} issue{% endif %}</strong><time>{{ event.at|localtime }}</time><p>{{ event.message }}</p></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">No activity recorded yet.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}
