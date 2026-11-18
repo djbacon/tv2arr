@@ -95,10 +95,9 @@ button.quiet { background: transparent; }
 .movie-card { overflow: hidden; border-radius: .75rem; border: 1px solid var(--border); background: var(--surface); }
 .movie-card a { height: 100%; display: block; text-decoration: none; color: inherit; }
 .movie-card a:focus-visible { outline-offset: -3px; }
-.poster { aspect-ratio: 3 / 4; background: #252d30; display: grid; place-items: center; color: var(--muted); overflow: hidden; }
+.poster { position: relative; aspect-ratio: 2 / 3; background: #252d30; display: grid; place-items: center; color: var(--muted); overflow: hidden; }
 .poster .icon { font-size: 2rem; }
-.poster img { width: 100%; height: 100%; object-fit: cover; }
-.movie-card .poster { position: relative; }
+.poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .request-badge {
   position: absolute; inset-block-start: .5rem; inset-inline-end: .5rem;
   display: grid; place-items: center; inline-size: 2rem; block-size: 2rem;

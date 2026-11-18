@@ -2,7 +2,7 @@
 <div class="film-detail panel" data-refresh="movie-detail">
   <div class="poster">
     {% set poster = movie.matched_poster or movie.poster %}
-    {% if poster %}<img src="{{ poster }}" alt="" width="468" height="624">{% else %}{{ icon('film') }}{% endif %}
+    {% if poster %}<img src="{{ poster }}" alt="" width="500" height="750">{% else %}{{ icon('film') }}{% endif %}
   </div>
   <div>
     {% set display_title = movie|movie_title %}

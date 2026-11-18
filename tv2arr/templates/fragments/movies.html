@@ -7,7 +7,7 @@
     <a href="{{ url_for('movie', listing_id=movie.id) }}">
       <div class="poster">
         {% set poster = movie.matched_poster or movie.poster %}
-        {% if poster %}<img src="{{ poster }}" alt="" width="468" height="624" loading="lazy">{% else %}{{ icon('film') }}{% endif %}
+        {% if poster %}<img src="{{ poster }}" alt="" width="500" height="750" loading="lazy">{% else %}{{ icon('film') }}{% endif %}
         {% if movie.outcome == 'Request sent to Seerr' %}
         <span class="request-badge" role="img" aria-label="Request sent to Seerr">{{ icon('circle-check') }}</span>
         {% endif %}
