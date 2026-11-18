@@ -53,7 +53,11 @@ CREATE TABLE IF NOT EXISTS events (
     kind TEXT NOT NULL,
     at INTEGER NOT NULL,
     message TEXT NOT NULL,
-    success INTEGER NOT NULL
+    success INTEGER NOT NULL,
+    source TEXT,
+    listed_count INTEGER,
+    new_count INTEGER,
+    requested_count INTEGER
 );
 """
 
@@ -87,6 +91,11 @@ class Storage:
                 db.execute("ALTER TABLE listings ADD COLUMN match_checked_at INTEGER")
             if "ignored" not in columns:
                 db.execute("ALTER TABLE listings ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0")
+            event_columns = {row["name"] for row in db.execute("PRAGMA table_info(events)")}
+            for name, kind in (("source", "TEXT"), ("listed_count", "INTEGER"),
+                               ("new_count", "INTEGER"), ("requested_count", "INTEGER")):
+                if name not in event_columns:
+                    db.execute(f"ALTER TABLE events ADD COLUMN {name} {kind}")
 
     @contextmanager
     def connect(self):
@@ -152,10 +161,12 @@ class Storage:
         )
         return status
 
-    def event(self, kind, message, success=True):
+    def event(self, kind, message, success=True, *, source=None, listed_count=None,
+              new_count=None, requested_count=None):
         self.write(
-            "INSERT INTO events(kind, at, message, success) VALUES (?, ?, ?, ?)",
-            (kind, now_stamp(), message, success),
+            """INSERT INTO events(kind, at, message, success, source, listed_count, new_count, requested_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (kind, now_stamp(), message, success, source, listed_count, new_count, requested_count),
         )
 
     def maintain(self, now, scheduled):

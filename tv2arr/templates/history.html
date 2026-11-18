@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import activity_table with context %}
 {% block content %}
 <div class="hero"><div><h1>History</h1><p>Movie requests and maintenance activity.</p></div></div>
 <nav class="filters section-tabs" aria-label="History sections">
@@ -39,22 +40,7 @@
     <h2 id="nightly-maintenance">Nightly maintenance</h2>
     <p class="muted">Daily at 04:00 Riga time. Movie history is retained for one year.</p>
     {% if events %}
-    <div class="activity-scroll" tabindex="0" role="region" aria-labelledby="nightly-maintenance">
-      <table class="activity-table" aria-labelledby="nightly-maintenance">
-        <caption>Scan and maintenance log</caption>
-        <thead><tr><th scope="col">Time</th><th scope="col">Activity</th><th scope="col">Result</th><th scope="col">Details</th></tr></thead>
-        <tbody>
-          {% for event in events %}
-          <tr>
-            <td><time>{{ event.at|localtime }}</time></td>
-            <td>{{ event.kind }}</td>
-            <td class="activity-{{ 'success' if event.success else 'issue' }}">{{ 'Success' if event.success else 'Issue' }}</td>
-            <td>{{ event.message }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    {{ activity_table(events, 'nightly-maintenance', 'Scan and maintenance log') }}
     {% else %}<p class="muted">No activity recorded yet.</p>{% endif %}
   </section>
 {% endif %}

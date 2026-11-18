@@ -61,7 +61,7 @@ class Service:
                     remaining -= self.scan_source(source, settings | {"limit": remaining})
                 except (httpx.HTTPError, ValueError) as error:
                     message = str(error) if isinstance(error, ValueError) else "Could not load the listing."
-                    self.db.event("Scan", f"{source.NAME}: {message}", False)
+                    self.db.event("Scan", f"{source.NAME}: {message}", False, source=source.SLUG)
         except Exception:
             log.exception("Catalogue scan stopped unexpectedly")
             self.db.event("Scan", "Catalogue scan stopped unexpectedly.", False)
@@ -96,7 +96,8 @@ class Service:
                                 self.match(listing, source, web, api, catalogue)
                         except SeerrError as error:
                             failures += 1
-                            self.db.event("Scan", f"{source.NAME} lookup for {movie_title(listing)}: {error}", False)
+                            self.db.event("Scan", f"{source.NAME} lookup for {movie_title(listing)}: {error}", False,
+                                          source=source.SLUG)
                             if error.status not in {400, 404, 422}:
                                 break
                         except (httpx.HTTPError, ValueError):
@@ -110,16 +111,17 @@ class Service:
                             failures += 1
 
         auto_count = self.auto_request(source.SLUG, settings)
-        message = f"{source.NAME}: {len(listings)} listed, {new} new."
+        notes = []
         if baseline:
-            message += " First scan saved."
+            notes.append("First scan saved.")
         if not configured:
-            message += " Connect Seerr in Settings to look up movies."
-        if auto_count:
-            message += f" {auto_count} requests sent."
+            notes.append("Connect Seerr in Settings to look up movies.")
         if failures:
-            message += f" {failures} lookup errors. Unfinished lookups will retry on a later scan."
-        self.db.event("Scan", message, not failures)
+            notes.append(f"{failures} lookup errors. Unfinished lookups will retry on a later scan.")
+        self.db.event(
+            "Scan", " ".join(notes), not failures, source=source.SLUG,
+            listed_count=len(listings), new_count=new, requested_count=auto_count,
+        )
         return auto_count
 
     def enrich(self, listing, source, web, catalogue):
@@ -175,7 +177,7 @@ class Service:
                 outcome = self.request(listing["id"], automatic=True)
                 count += outcome == "Request sent to Seerr"
             except SeerrError as error:
-                self.db.event("Scan", f"Automatic request: {error}", False)
+                self.db.event("Scan", f"Automatic request: {error}", False, source=source)
                 break
         return count
 

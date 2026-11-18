@@ -80,6 +80,8 @@ h2 { font-size: 1.15rem; line-height: 1.35; }
 .activity-table tbody tr:last-child td { border-block-end: 0; }
 .activity-success { color: var(--accent); }
 .activity-issue { color: var(--error); }
+.scan-table { min-inline-size: 54rem; }
+.scan-table .activity-count { text-align: end; font-variant-numeric: tabular-nums; }
 .history-table { min-inline-size: 52rem; }
 .history-table td.history-title { width: 100%; min-inline-size: 12rem; white-space: normal; overflow-wrap: anywhere; }
 .history-table td:last-child { width: auto; white-space: nowrap; }

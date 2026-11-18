@@ -12,6 +12,7 @@ from flask import (
 )
 
 from . import __version__
+from .activity import activity_columns
 from .seerr import LANGUAGES, SeerrError, base_url, find_candidates
 from .service import Service
 from .sources.apollo import POSTER_ORIGIN
@@ -61,6 +62,7 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
     app.extensions["tv2arr"] = service
     app.jinja_env.filters["movie_title"] = movie_title
     app.jinja_env.filters["title_language"] = title_language
+    app.jinja_env.filters["activity_columns"] = activity_columns
 
     @app.before_request
     def require_lan_and_session():

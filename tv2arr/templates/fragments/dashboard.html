@@ -1,4 +1,4 @@
-{% from "macros.html" import icon, token with context %}
+{% from "macros.html" import icon, token, activity_table with context %}
 <div class="hero">
   <div>
     <h1>Overview</h1>
@@ -16,20 +16,6 @@
 <section class="panel" data-refresh="activity">
   <h2 id="recent-activity">Recent activity</h2>
   {% if events %}
-  <div class="activity-scroll" tabindex="0" role="region" aria-labelledby="recent-activity">
-    <table class="activity-table" aria-labelledby="recent-activity">
-      <thead><tr><th scope="col">Time</th><th scope="col">Activity</th><th scope="col">Result</th><th scope="col">Details</th></tr></thead>
-      <tbody>
-        {% for event in events %}
-        <tr>
-          <td><time>{{ event.at|localtime }}</time></td>
-          <td>{{ event.kind }}</td>
-          <td class="activity-{{ 'success' if event.success else 'issue' }}">{{ 'Success' if event.success else 'Issue' }}</td>
-          <td>{{ event.message }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {{ activity_table(events, 'recent-activity') }}
   {% else %}<p class="muted">Run your first scan to discover movies.</p>{% endif %}
 </section>

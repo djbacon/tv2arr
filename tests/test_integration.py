@@ -166,6 +166,66 @@ class IntegrationTest(unittest.TestCase):
     def scan(self):
         self.service.scan_source(tv3)
 
+    def test_scan_events_store_source_and_actual_new_request_counts(self):
+        self.connect()
+        self.scan()
+        first = self.db.rows("SELECT * FROM events ORDER BY id DESC LIMIT 1")[0]
+        self.assertEqual((first["source"], first["listed_count"], first["new_count"], first["requested_count"]),
+                         ("tv3", 1, 1, 0))
+        self.assertEqual(first["message"], "First scan saved.")
+        self.db.set_config("settings", self.db.settings() | {"mode": "auto"})
+        self.scan()
+        requested = self.db.rows("SELECT * FROM events ORDER BY id DESC LIMIT 1")[0]
+        self.assertEqual((requested["listed_count"], requested["new_count"], requested["requested_count"]), (1, 0, 1))
+        self.assertEqual(requested["message"], "")
+        self.scan()
+        repeated = self.db.rows("SELECT * FROM events ORDER BY id DESC LIMIT 1")[0]
+        self.assertEqual(repeated["requested_count"], 0)
+        self.enable_apollo((101,))
+        self.service.scan_source(apollo)
+        duplicate = self.db.rows("SELECT * FROM events ORDER BY id DESC LIMIT 1")[0]
+        self.assertEqual((duplicate["source"], duplicate["listed_count"], duplicate["new_count"], duplicate["requested_count"]),
+                         ("apollo", 1, 1, 0))
+        self.assertEqual(len(self.posts), 1)
+
+    def test_activity_tables_show_legacy_counts_zeroes_and_error_notes(self):
+        self.connect()
+        self.db.event("Scan", "REplay.lv: 65 listed, 0 new. 1 requests sent.")
+        self.db.event("Scan", "1 lookup errors. <retry later>", False, source="tv3",
+                      listed_count=1, new_count=0, requested_count=0)
+        self.db.event("Maintenance", "Removed 12 expired entries.")
+        for url, headers in (("/", {}), ("/", {"X-TV2ARR-Refresh": "1"}),
+                             ("/history?tab=maintenance", {})):
+            with self.subTest(url=url, headers=headers):
+                response = self.browser.get(url, headers=headers)
+                self.assertEqual(response.status_code, 200)
+                page = BeautifulSoup(response.data, "html.parser")
+                self.assertEqual([h.get_text() for h in page.select(".scan-table thead th")],
+                                 ["Time", "Activity", "Result", "Source", "Listed", "New", "Requested", "Notes"])
+                rows = [[cell.get_text() for cell in row.select("td")] for row in page.select(".scan-table tbody tr")]
+                self.assertEqual(rows[0][3:7], ["-", "-", "-", "-"])
+                self.assertEqual(rows[1][3:7], ["TV3 Play", "1", "0", "0"])
+                self.assertEqual(rows[1][7], "1 lookup errors. <retry later>")
+                self.assertEqual(rows[2][3:], ["REplay.lv", "65", "0", "1", "-"])
+                self.assertIsNone(page.find("retry"))
+
+    def test_event_schema_upgrade_keeps_saved_logs_and_request_history(self):
+        self.connect()
+        self.scan()
+        self.service.request(1)
+        self.db.event("Scan", "REplay.lv: 65 listed, 0 new. 1 requests sent.")
+        before = [tuple(row) for row in self.db.rows("SELECT id,kind,at,message,success FROM events")]
+        with self.db.connect() as db:
+            for column in ("source", "listed_count", "new_count", "requested_count"):
+                db.execute(f"ALTER TABLE events DROP COLUMN {column}")
+        migrated = Storage(self.db.path)
+        self.assertEqual([tuple(row) for row in migrated.rows("SELECT id,kind,at,message,success FROM events")], before)
+        self.assertEqual(len(migrated.rows("SELECT * FROM history")), 1)
+        self.assertTrue(all(row["listed_count"] is None for row in migrated.rows("SELECT * FROM events")))
+        self.assertIn("REplay.lv", self.browser.get("/").get_data(as_text=True))
+        migrated.event("Scan", "", source="tv3", listed_count=1, new_count=0, requested_count=0)
+        self.assertEqual(migrated.rows("SELECT * FROM events ORDER BY id DESC LIMIT 1")[0]["requested_count"], 0)
+
     def ignore(self, listing_id=1, ignored=True):
         return self.browser.post(f"/movies/{listing_id}/ignore", data={
             "csrf": self.csrf(f"/movies/{listing_id}"), "ignored": "1" if ignored else "0",
