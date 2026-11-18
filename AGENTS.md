@@ -2,6 +2,7 @@
 
 ## Required workflow
 
+- Before starting new modifications, review and commit any completed, uncommitted work from previous tasks. Keep that commit separate from the new task's changes. Never include secrets or unfinished, unrelated work in the commit.
 - After every modification, include in the final response the exact repository-relative files or folders that need to be uploaded to the server. State any required rebuild/restart steps. If no server upload is needed, say so explicitly.
 
 ## Versioning
