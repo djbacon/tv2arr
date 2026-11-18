@@ -15,6 +15,7 @@ from . import __version__
 from .seerr import LANGUAGES, SeerrError, base_url, find_candidates
 from .service import Service
 from .sources.apollo import POSTER_ORIGIN
+from .sources.replay import POSTER_ORIGIN as REPLAY_POSTER_ORIGIN
 from .storage import RIGA, Storage, now_stamp
 from .titles import movie_title, title_language
 
@@ -83,7 +84,8 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
     @app.after_request
     def response_headers(response):
         response.headers["Content-Security-Policy"] = (
-            f"default-src 'self'; img-src 'self' https://tv3cdn.lv https://image.tmdb.org {POSTER_ORIGIN}; "
+            "default-src 'self'; img-src 'self' https://tv3cdn.lv https://image.tmdb.org "
+            f"{POSTER_ORIGIN} {REPLAY_POSTER_ORIGIN}; "
             "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
         )
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -99,6 +101,7 @@ def create_app(config=None, *, start_scheduler=True, service_factory=Service):
         return {
             "csrf": session["csrf"], "version": release, "languages": LANGUAGES,
             "sources": service.sources,
+            "source_names": ", ".join(source.NAME for source in service.sources.values()),
         }
 
     @app.template_filter("localtime")

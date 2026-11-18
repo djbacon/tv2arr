@@ -2,7 +2,7 @@
 <div class="hero">
   <div>
     <h1>Overview</h1>
-    <p>Discover films on TV3 Play and Apollo Kino and send eligible movies to Seerr.</p>
+    <p>Discover films on {{ source_names }} and send eligible movies to Seerr.</p>
   </div>
   <form method="post" action="{{ url_for('scan') }}" aria-label="Scan movie sources" data-scan-form>
     {{ token() }}<button class="primary" type="submit" data-refresh="scan" aria-disabled="{{ 'true' if scanning else 'false' }}">{{ icon('refresh') }} {{ 'Scan in progress' if scanning else 'Scan now' }}</button>

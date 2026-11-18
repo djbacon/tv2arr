@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from tv2arr.app import create_app
 from tv2arr.seerr import Seerr, SeerrError
 from tv2arr.service import MISSING_RETRY_SECONDS, Service
-from tv2arr.sources import apollo, tv3
+from tv2arr.sources import apollo, replay, tv3
 from tv2arr.storage import RIGA, Storage, now_stamp, retention_cutoff
 
 PASSWORD = "temporary-test-password"
@@ -35,6 +35,9 @@ class IntegrationTest(unittest.TestCase):
         self.reject_latvian_locale = False
         self.source_ids = [101]
         self.apollo_feed = []
+        self.replay_items = []
+        self.replay_failed_page = None
+        self.replay_failed_details = set()
         self.source_calls = []
         self.config = {
             "TESTING": True, "DATA_DIR": data.name, "ADMIN_PASSWORD": PASSWORD,
@@ -55,6 +58,25 @@ class IntegrationTest(unittest.TestCase):
         self.source_calls.append(str(request.url))
         if str(request.url) == apollo.FEED_URL:
             return httpx.Response(200, json=self.apollo_feed)
+        if request.url.host == "replay.lsm.lv" and request.url.path == "/graphql":
+            variables = json.loads(request.url.params["variables"])
+            if "page" in variables:
+                page = variables["page"]
+                if page == self.replay_failed_page:
+                    return httpx.Response(503)
+                return httpx.Response(200, json={"data": {"media": {
+                    "total": len(self.replay_items), "data": self.replay_items[(page - 1) * 24:page * 24],
+                }}})
+            sid = variables["id"]
+            if sid in self.replay_failed_details:
+                return httpx.Response(503)
+            item = next(i for i in self.replay_items if i["external_id"] == sid)
+            return httpx.Response(200, json={"data": {"viewMedia": {
+                "mediaItem": item, "metadata": [
+                    {"name": "title-original", "values": [{"title": f"Original {sid}"}]},
+                    {"name": "year", "values": [{"title": "2024"}]},
+                ],
+            }}})
         if request.url.path == "/filmas/":
             cards = "".join(
                 f'<h3 class="tv3-post-title"><a href="/filmas/filma-{sid}/">Filma {sid}</a></h3>'
@@ -161,8 +183,120 @@ class IntegrationTest(unittest.TestCase):
         self.service.scan_lock.acquire()
         self.service._scan()
 
-    def test_default_sources_include_apollo_and_tv3(self):
-        self.assertEqual(set(Service(self.db).sources), {"tv3", "apollo"})
+    def test_default_sources_include_tv3_apollo_and_replay(self):
+        self.assertEqual(set(Service(self.db).sources), {"tv3", "apollo", "replay"})
+
+    def enable_replay(self, ids=(103,)):
+        self.service.sources[replay.SLUG] = replay
+        self.replay_items = [
+            {
+                "id": sid + 50000, "external_id": sid, "external_source": "ltv",
+                "title": f"Replay filma {sid}. Drāma", "slug": f"filma-{sid}-drama",
+                "type": "full", "playback_type": "VIDEO", "show": {"id": 252},
+                "thumbnail": f"{replay.POSTER_ORIGIN}/storage/{sid}.jpg",
+            }
+            for sid in ids
+        ]
+
+    def test_replay_paginates_and_enriches_without_seerr(self):
+        self.enable_replay(range(101, 126))
+        self.service.scan_source(replay)
+        movies = self.db.rows("SELECT * FROM listings ORDER BY id")
+        self.assertEqual(len(movies), 25)
+        self.assertTrue(all(m["source"] == "replay" and m["enriched"] for m in movies))
+        self.assertEqual(movies[0]["title"], "Replay filma 101")
+        self.assertEqual(movies[0]["original_title"], "Original 101")
+        self.assertEqual(movies[0]["year"], 2024)
+        self.assertEqual(movies[0]["poster"], f"{replay.POSTER_ORIGIN}/storage/101.jpg")
+        self.assertEqual(len(self.source_calls), 27)
+        self.assertEqual(self.search_queries, [])
+        self.assertEqual(self.posts, [])
+        self.service.scan_source(replay)
+        self.assertEqual(len(self.source_calls), 29)  # Only catalogue pages are fetched again.
+        self.replay_items.pop()
+        self.service.scan_source(replay)
+        self.assertEqual(self.db.movie(25)["present"], 0)
+
+    def test_all_three_sources_share_request_history_and_scan_cap(self):
+        self.enable_apollo((101, 102))
+        self.enable_replay((101, 102, 103))
+        self.connect("auto")
+        self.scan_all()
+        self.assertEqual([p["mediaId"] for p in self.posts], [101, 102])
+        self.assertEqual(self.db.rows("SELECT count(*) FROM listings WHERE match_state='ready'")[0][0], 6)
+        self.scan_all()
+        self.assertEqual([p["mediaId"] for p in self.posts], [101, 102, 103])
+        self.assertEqual(self.db.rows("SELECT count(*) FROM history")[0][0], 3)
+
+    def test_replay_language_gate_and_preview_mode(self):
+        self.enable_replay()
+        self.connect("auto")
+        for language, state in (("en", "ready"), ("lv", "ready"), ("fr", "excluded"), ("", "review")):
+            with self.subTest(language=language):
+                self.db.write("DELETE FROM listings")
+                self.db.write("DELETE FROM history")
+                self.posts.clear()
+                self.movie_language = language
+                self.service.scan_source(replay)
+                self.assertEqual(self.db.movie(1)["match_state"], state)
+                self.assertEqual(bool(self.posts), state == "ready")
+        self.db.write("DELETE FROM listings")
+        self.db.write("DELETE FROM history")
+        self.posts.clear()
+        self.movie_language = "en"
+        self.db.set_config("settings", self.db.settings() | {"mode": "preview"})
+        self.service.scan_source(replay)
+        self.assertEqual(self.db.movie(1)["match_state"], "ready")
+        self.assertEqual(self.posts, [])
+
+    def test_replay_later_page_failure_preserves_catalogue_and_other_sources_continue(self):
+        self.enable_replay(range(101, 126))
+        self.service.scan_source(replay)
+        before = [dict(m) for m in self.db.rows("SELECT * FROM listings WHERE source='replay'")]
+        self.replay_items[0]["title"] = "Updated title 101. Drāma"
+        self.replay_failed_page = 2
+        self.source_ids.append(126)
+        self.service.sources = {"replay": replay, "tv3": tv3}
+        self.scan_all()
+        self.assertEqual([dict(m) for m in self.db.rows("SELECT * FROM listings WHERE source='replay'")], before)
+        self.assertTrue(self.db.rows("SELECT * FROM listings WHERE source='tv3' AND source_id='126'"))
+        self.assertIn("REplay.lv:", self.db.rows("SELECT * FROM events WHERE success=0")[-1]["message"])
+        self.replay_failed_page = None
+        self.scan_all()
+        self.assertEqual(self.db.movie(1)["title"], "Updated title 101")
+
+    def test_replay_metadata_failures_retry_without_blocking_other_films(self):
+        self.enable_replay((103, 104))
+        self.replay_failed_details = {103}
+        self.service.scan_source(replay)
+        self.assertFalse(self.db.movie(1)["enriched"])
+        self.assertTrue(self.db.movie(2)["enriched"])
+        calls = len(self.source_calls)
+        self.replay_failed_details.clear()
+        self.service.scan_source(replay)
+        self.assertTrue(self.db.movie(1)["enriched"])
+        self.assertEqual(len(self.source_calls) - calls, 2)  # One catalogue and one retried detail.
+
+    def test_replay_labels_links_posters_and_source_names(self):
+        self.enable_apollo()
+        self.enable_replay()
+        self.connect()
+        self.scan_all()
+        listing = self.db.rows("SELECT * FROM listings WHERE source='replay'")[0]
+        for headers in ({}, {"X-TV2ARR-Refresh": "1"}):
+            with self.subTest(headers=headers):
+                response = self.browser.get("/movies", headers=headers)
+                page = BeautifulSoup(response.data, "html.parser")
+                self.assertTrue(any("REplay.lv" in c.get_text() for c in page.select(".movie-card")))
+                response = self.browser.get(f'/movies/{listing["id"]}', headers=headers)
+                detail = BeautifulSoup(response.data, "html.parser")
+                self.assertEqual(detail.find("a", string="View on REplay.lv")["href"], listing["url"])
+                self.assertEqual(detail.select_one(".poster img")["src"], listing["poster"])
+                self.assertIn(replay.POSTER_ORIGIN, response.headers["Content-Security-Policy"])
+                overview = self.browser.get("/", headers=headers).get_data(as_text=True)
+                self.assertIn(replay.URL, overview)
+        for url in ("/", "/movies", "/settings"):
+            self.assertIn("TV3 Play, Apollo Kino, REplay.lv", self.browser.get(url).get_data(as_text=True))
 
     def test_apollo_catalogue_enriches_without_seerr_or_detail_requests(self):
         self.enable_apollo((102, 103))

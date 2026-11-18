@@ -6,7 +6,7 @@ from threading import Event, Lock, Thread
 import httpx
 
 from .seerr import LANGUAGES, Seerr, SeerrError, existing_request, find_candidates, poster_url
-from .sources import apollo, tv3
+from .sources import apollo, replay, tv3
 from .storage import RIGA, now_stamp
 from .titles import movie_title
 
@@ -16,7 +16,7 @@ MISSING_RETRY_SECONDS = 24 * 3600
 
 
 class Service:
-    def __init__(self, db, sources=(tv3, apollo), seerr=Seerr, source_transport=None):
+    def __init__(self, db, sources=(tv3, apollo, replay), seerr=Seerr, source_transport=None):
         self.db = db
         self.sources = {source.SLUG: source for source in sources}
         self.seerr = seerr
