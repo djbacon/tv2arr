@@ -13,28 +13,23 @@
   <a class="metric" href="{{ url }}">{{ icon(symbol) }}<strong>{{ value }}</strong><span>{{ label }}</span></a>
   {% endfor %}
 </div>
-<div class="columns" data-refresh="activity">
-  <section class="panel">
-    <h2>Recent activity</h2>
-    {% if events %}
-    <ul class="activity">
-      {% for event in events %}
-      <li><strong>{{ event.kind }}{% if not event.success %} issue{% endif %}</strong><time>{{ event.at|localtime }}</time><p>{{ event.message }}</p></li>
-      {% endfor %}
-    </ul>
-    {% else %}<p class="muted">Run your first scan to discover movies.</p>{% endif %}
-  </section>
-  <section class="panel">
-    <h2>Sources and requests</h2>
-    <dl class="meta">
-      {% for source in sources.values() %}
-      <div><dt>Source</dt><dd><a href="{{ source.URL }}">{{ source.NAME }}</a></dd></div>
-      {% endfor %}
-      <div><dt>Scan interval</dt><dd>Every {{ settings.interval }} hours</dd></div>
-      <div><dt>Seerr</dt><dd>{{ settings.connection if settings.url else 'Not configured' }}</dd></div>
-      <div><dt>Request mode</dt><dd>{{ {'manual':'Manual', 'auto':'Automatic', 'preview':'Preview only'}[settings.mode] }}</dd></div>
-      <div><dt>Original languages</dt><dd>Latvian, English</dd></div>
-    </dl>
-    <a class="button" href="{{ url_for('settings') }}">Open settings</a>
-  </section>
-</div>
+<section class="panel" data-refresh="activity">
+  <h2 id="recent-activity">Recent activity</h2>
+  {% if events %}
+  <div class="activity-scroll" tabindex="0" role="region" aria-labelledby="recent-activity">
+    <table class="activity-table" aria-labelledby="recent-activity">
+      <thead><tr><th scope="col">Time</th><th scope="col">Activity</th><th scope="col">Result</th><th scope="col">Details</th></tr></thead>
+      <tbody>
+        {% for event in events %}
+        <tr>
+          <td><time>{{ event.at|localtime }}</time></td>
+          <td>{{ event.kind }}</td>
+          <td class="activity-{{ 'success' if event.success else 'issue' }}">{{ 'Success' if event.success else 'Issue' }}</td>
+          <td>{{ event.message }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="muted">Run your first scan to discover movies.</p>{% endif %}
+</section>

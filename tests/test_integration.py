@@ -294,7 +294,7 @@ class IntegrationTest(unittest.TestCase):
                 self.assertEqual(detail.select_one(".poster img")["src"], listing["poster"])
                 self.assertIn(replay.POSTER_ORIGIN, response.headers["Content-Security-Policy"])
                 overview = self.browser.get("/", headers=headers).get_data(as_text=True)
-                self.assertIn(replay.URL, overview)
+                self.assertIn(replay.NAME, BeautifulSoup(overview, "html.parser").select_one(".hero p").get_text())
         for url in ("/", "/movies", "/settings"):
             self.assertIn("TV3 Play, Apollo Kino, REplay.lv", self.browser.get(url).get_data(as_text=True))
 
@@ -393,7 +393,7 @@ class IntegrationTest(unittest.TestCase):
                 self.assertIn(apollo.POSTER_ORIGIN, response.headers["Content-Security-Policy"])
                 self.assertNotIn("img-src *", response.headers["Content-Security-Policy"])
                 overview = self.browser.get("/", headers=headers).get_data(as_text=True)
-                self.assertIn(apollo.URL, overview)
+                self.assertIn(apollo.NAME, BeautifulSoup(overview, "html.parser").select_one(".hero p").get_text())
 
     def test_manual_request_and_history_survive_recreation(self):
         self.connect()

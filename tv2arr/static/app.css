@@ -70,6 +70,15 @@ h2 { font-size: 1.15rem; line-height: 1.35; }
 .activity li:last-child { border: 0; padding-block-end: 0; }
 .activity p { margin: .2rem 0 0; color: var(--muted); }
 .activity time { color: var(--muted); display: block; font-size: .84rem; }
+.activity-scroll { max-inline-size: 100%; overflow-x: auto; }
+.activity-table { width: 100%; min-inline-size: 40rem; border-collapse: collapse; font-size: .875rem; text-align: start; }
+.activity-table th, .activity-table td { padding: .45rem .65rem; border-block-end: 1px solid var(--border); vertical-align: top; }
+.activity-table th { color: var(--muted); font-weight: 650; text-align: start; }
+.activity-table td:not(:last-child) { white-space: nowrap; }
+.activity-table td:last-child { width: 100%; overflow-wrap: anywhere; }
+.activity-table tbody tr:last-child td { border-block-end: 0; }
+.activity-success { color: var(--accent); }
+.activity-issue { color: var(--error); }
 .meta { margin: 0 0 1.2rem; }
 .meta div { display: flex; justify-content: space-between; gap: .75rem; padding-block: .6rem; border-block-end: 1px solid var(--border); }
 .meta dt { color: var(--muted); }
